@@ -16,6 +16,8 @@ import {
   User,
   Crown,
   Check,
+  LogOut,
+  Sparkles,
 } from 'lucide-react';
 import {
   TOOLS_DATA,
@@ -36,6 +38,20 @@ import { ToolWorkspaceModal } from './components/ToolWorkspaceModal';
 import { WorkflowBuilderModal } from './components/WorkflowBuilderModal';
 import { AuthAccountModal, UserProfileData } from './components/AuthAccountModal';
 import { PricingPlansSection, PlanTierId } from './components/PricingPlansSection';
+import { SubscriptionUpgradeModal } from './components/SubscriptionUpgradeModal';
+import {
+  auth,
+  googleProvider,
+  signInWithPopup,
+  firebaseSignOut,
+  onAuthStateChanged,
+  fetchUserProfileFromFirestore,
+  saveUserProfileToFirestore,
+  updateUserPlanInFirestore,
+  saveWorkflowToFirestore,
+  saveActivityLogToFirestore,
+  subscribeToUserWorkspace,
+} from './lib/firebase';
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(false);
@@ -55,6 +71,8 @@ export default function App() {
   >([]);
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [userPhotoURL, setUserPhotoURL] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfileData | null>(() => {
     try {
       const saved = localStorage.getItem('toolnova_user_profile');
@@ -95,6 +113,74 @@ export default function App() {
     document.documentElement.lang = language;
     document.documentElement.dir = currentLangMeta.dir;
   }, [language, currentLangMeta.dir]);
+
+  useEffect(() => {
+    let unsubWorkspace: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+      if (unsubWorkspace) {
+        unsubWorkspace();
+        unsubWorkspace = null;
+      }
+
+      if (fbUser) {
+        setUserPhotoURL(fbUser.photoURL || null);
+        try {
+          let profile = await fetchUserProfileFromFirestore(fbUser.uid);
+          if (!profile) {
+            profile = {
+              uid: fbUser.uid,
+              photoURL: fbUser.photoURL || undefined,
+              fullName: (fbUser.displayName || fbUser.email?.split('@')[0] || 'ToolNova User').slice(0, 120),
+              email: (fbUser.email || 'user@example.com').slice(0, 254),
+              phone: '+212 600-000000',
+              companyOrRole: 'Independent Professional',
+              country: 'Morocco',
+              planId: activePlan,
+              joinedAt: new Date().toISOString().slice(0, 10),
+            };
+            await saveUserProfileToFirestore(fbUser.uid, profile);
+          } else if (fbUser.photoURL && !profile.photoURL) {
+            profile = { ...profile, photoURL: fbUser.photoURL };
+          }
+          setCurrentUser(profile);
+          setActivePlan(profile.planId);
+          try {
+            localStorage.setItem('toolnova_user_profile', JSON.stringify(profile));
+          } catch {
+            // ignore
+          }
+
+          unsubWorkspace = subscribeToUserWorkspace(
+            fbUser.uid,
+            (cloudWorkflows) => {
+              if (cloudWorkflows.length > 0) {
+                setWorkflows((prev) => {
+                  const existingIds = new Set(cloudWorkflows.map((w) => w.id));
+                  const defaults = INITIAL_WORKFLOWS.filter((w) => !existingIds.has(w.id));
+                  return [...cloudWorkflows, ...defaults];
+                });
+              }
+            },
+            (cloudLogs) => {
+              if (cloudLogs.length > 0) {
+                setSessionHistory(cloudLogs.slice(0, 8));
+              }
+            }
+          );
+        } catch (err) {
+          console.error('Error syncing Firebase user profile:', err);
+        }
+      } else {
+        setUserPhotoURL(null);
+      }
+    });
+
+    return () => {
+      unsubAuth();
+      if (unsubWorkspace) unsubWorkspace();
+    };
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -162,10 +248,13 @@ export default function App() {
   const handleRecordHistory = (toolTitle: string, detail: string) => {
     const now = new Date();
     const timeStr = now.toTimeString().slice(0, 8);
-    setSessionHistory((prev) => [
-      { id: `${Date.now()}`, toolTitle, detail, time: timeStr },
-      ...prev.slice(0, 7),
-    ]);
+    const logItem = { id: `log_${Date.now()}`, toolTitle, detail, time: timeStr };
+    setSessionHistory((prev) => [logItem, ...prev.slice(0, 7)]);
+    if (auth.currentUser?.uid) {
+      saveActivityLogToFirestore(auth.currentUser.uid, logItem).catch((err) =>
+        console.error('Failed to persist activity log:', err)
+      );
+    }
   };
 
   const handleStartWorkflow = (wf: WorkflowPreset) => {
@@ -211,11 +300,63 @@ export default function App() {
     }
   };
 
+  const handleDirectGoogleSignIn = async () => {
+    try {
+      const cred = await signInWithPopup(auth, googleProvider);
+      const fbUser = cred.user;
+      setUserPhotoURL(fbUser.photoURL || null);
+      let profile = await fetchUserProfileFromFirestore(fbUser.uid);
+      if (!profile) {
+        profile = {
+          uid: fbUser.uid,
+          photoURL: fbUser.photoURL || undefined,
+          fullName: (fbUser.displayName || fbUser.email?.split('@')[0] || 'ToolNova User').slice(0, 120),
+          email: (fbUser.email || 'user@example.com').slice(0, 254),
+          phone: '+212 600-000000',
+          companyOrRole: 'Independent Professional',
+          country: 'Morocco',
+          planId: activePlan,
+          joinedAt: new Date().toISOString().slice(0, 10),
+        };
+        await saveUserProfileToFirestore(fbUser.uid, profile);
+      } else if (fbUser.photoURL) {
+        profile = { ...profile, photoURL: fbUser.photoURL };
+      }
+      setCurrentUser(profile);
+      setActivePlan(profile.planId);
+      try {
+        localStorage.setItem('toolnova_user_profile', JSON.stringify(profile));
+      } catch {
+        // ignore
+      }
+      handleRecordHistory(
+        language === 'ar' ? 'تسجيل الدخول عبر Google' : 'Google Sign-In',
+        `${profile.fullName} (${profile.email})`
+      );
+    } catch (err) {
+      console.warn('Popup sign-in Fallback to Auth Modal:', err);
+      setIsAuthModalOpen(true);
+    }
+  };
+
+  const handleSignOutUser = () => {
+    if (auth.currentUser) {
+      firebaseSignOut(auth).catch((err) => console.error('Sign out error:', err));
+    }
+    setUserPhotoURL(null);
+    setCurrentUser(null);
+    try {
+      localStorage.removeItem('toolnova_user_profile');
+    } catch {
+      // ignore
+    }
+  };
+
   return (
     <div
       id="top"
       dir={currentLangMeta.dir}
-      className="min-h-screen flex flex-col bg-[#f7f7fa] dark:bg-[#0B0F19] text-[#111827] dark:text-slate-100 transition-colors duration-150 relative overflow-x-hidden"
+      className="min-h-screen flex flex-col bg-[#FAFAFC] dark:bg-[#0B0F19] text-[#111827] dark:text-slate-100 transition-colors duration-150 relative overflow-x-hidden"
     >
       {/* Subtle Clean iLovePDF Ambient Highlights */}
       <div
@@ -336,17 +477,117 @@ export default function App() {
             )}
           </button>
 
-          {/* Email Sign In / Personal Info Account Button */}
+          {/* Prominent Upgrade to Pro / Go Unlimited Header Button */}
           <button
             type="button"
-            onClick={() => setIsAuthModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 hover:border-slate-300 text-[#111827] dark:text-slate-100 transition-all cursor-pointer"
+            onClick={() => setIsUpgradeModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-xl text-xs font-extrabold bg-red-50 hover:bg-red-100/80 dark:bg-rose-950/50 text-[#e5322d] dark:text-rose-300 border border-red-200/90 dark:border-rose-800/80 shadow-2xs transition-all cursor-pointer shrink-0"
           >
-            <User className="w-3.5 h-3.5 text-[#e5322d] shrink-0" />
-            <span className="max-w-[115px] truncate">
-              {currentUser ? currentUser.fullName : t.loginBtnLabel}
+            <Sparkles className="w-3.5 h-3.5 text-[#e5322d] shrink-0" />
+            <span>
+              {language === 'ar' ? 'الترقية إلى Pro' : 'Upgrade to Pro'}
+            </span>
+            <span className="hidden xl:inline-block px-1.5 py-0.5 rounded-md bg-[#e5322d] text-white text-[10px] font-extrabold leading-none">
+              {language === 'ar' ? 'غير محدود' : 'Go Unlimited'}
             </span>
           </button>
+
+          {/* Firebase Auth Header Section: Login with Google OR Logged-In Avatar + Name + Pro Badge + Sign Out */}
+          {currentUser ? (
+            <div className="inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setIsAuthModalOpen(true)}
+                className="inline-flex items-center gap-2 text-xs font-bold text-[#111827] dark:text-slate-100 hover:text-[#e5322d] transition-colors cursor-pointer"
+                title={currentUser.email}
+              >
+                {userPhotoURL || currentUser.photoURL ? (
+                  <img
+                    src={userPhotoURL || currentUser.photoURL}
+                    alt={currentUser.fullName}
+                    referrerPolicy="no-referrer"
+                    className="w-6 h-6 rounded-full object-cover border border-slate-200 shrink-0"
+                  />
+                ) : (
+                  <span className="w-6 h-6 rounded-full bg-red-50 text-[#e5322d] border border-red-200 flex items-center justify-center text-[11px] font-extrabold shrink-0">
+                    {currentUser.fullName.charAt(0).toUpperCase()}
+                  </span>
+                )}
+                <span className="max-w-[100px] sm:max-w-[130px] truncate">
+                  {currentUser.fullName}
+                </span>
+              </button>
+
+              {(activePlan === 'pro' ||
+                activePlan === 'business' ||
+                currentUser.planId === 'pro' ||
+                currentUser.planId === 'business') && (
+                <button
+                  type="button"
+                  onClick={() => setIsUpgradeModalOpen(true)}
+                  className="px-2 py-0.5 rounded-full bg-[#e5322d] text-white text-[10px] font-extrabold tracking-wide inline-flex items-center gap-0.5 shrink-0 cursor-pointer"
+                  title="Pro / Premium Account Active"
+                >
+                  <Crown className="w-2.5 h-2.5" />
+                  <span>PRO</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleSignOutUser}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-[#e5322d] hover:bg-red-50 dark:hover:bg-slate-700 transition-colors cursor-pointer inline-flex items-center gap-1 text-[11px] font-bold"
+                title={language === 'ar' ? 'تسجيل الخروج' : 'Sign out'}
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">
+                  {language === 'ar' ? 'خروج' : 'Sign out'}
+                </span>
+              </button>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleDirectGoogleSignIn}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 hover:border-slate-300 text-[#111827] dark:text-slate-100 shadow-2xs transition-all cursor-pointer"
+              >
+                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#EA4335"
+                    d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z"
+                  />
+                  <path
+                    fill="#4285F4"
+                    d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 20.9 7.4 24 12 24z"
+                  />
+                </svg>
+                <span className="whitespace-nowrap">
+                  {language === 'ar'
+                    ? 'تسجيل الدخول / Google'
+                    : 'Login / Sign in with Google'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsAuthModalOpen(true)}
+                className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                title={t.loginBtnLabel}
+                aria-label="Account profile modal"
+              >
+                <User className="w-4 h-4 text-[#e5322d]" />
+              </button>
+            </div>
+          )}
 
           <button
             onClick={() => setIsWorkflowModalOpen(true)}
@@ -733,6 +974,11 @@ export default function App() {
                 } catch {
                   // ignore
                 }
+                if (auth.currentUser?.uid) {
+                  updateUserPlanInFirestore(auth.currentUser.uid, plan).catch((err) =>
+                    console.error('Failed to update plan in Firestore:', err)
+                  );
+                }
               } else {
                 setIsAuthModalOpen(true);
               }
@@ -830,6 +1076,11 @@ export default function App() {
         onSaveWorkflow={(newWf) => {
           setWorkflows((prev) => [newWf, ...prev]);
           setActiveCategory('workflows');
+          if (auth.currentUser?.uid) {
+            saveWorkflowToFirestore(auth.currentUser.uid, newWf).catch((err) =>
+              console.error('Failed to save workflow to Firestore:', err)
+            );
+          }
         }}
       />
 
@@ -838,20 +1089,61 @@ export default function App() {
         onClose={() => setIsAuthModalOpen(false)}
         language={language}
         currentUser={currentUser}
-        onSaveUser={(user) => {
-          setCurrentUser(user);
-          setActivePlan(user.planId);
+        onGoogleSignIn={async () => {
+          const cred = await signInWithPopup(auth, googleProvider);
+          const fbUser = cred.user;
+          let profile = await fetchUserProfileFromFirestore(fbUser.uid);
+          if (!profile) {
+            profile = {
+              uid: fbUser.uid,
+              fullName: (fbUser.displayName || fbUser.email?.split('@')[0] || 'ToolNova User').slice(0, 120),
+              email: (fbUser.email || 'user@example.com').slice(0, 254),
+              phone: '+212 600-000000',
+              companyOrRole: 'Independent Professional',
+              country: 'Morocco',
+              planId: activePlan,
+              joinedAt: new Date().toISOString().slice(0, 10),
+            };
+            await saveUserProfileToFirestore(fbUser.uid, profile);
+          }
+          setCurrentUser(profile);
+          setActivePlan(profile.planId);
           try {
-            localStorage.setItem('toolnova_user_profile', JSON.stringify(user));
+            localStorage.setItem('toolnova_user_profile', JSON.stringify(profile));
           } catch {
             // ignore
           }
           handleRecordHistory(
+            language === 'ar' ? 'حساب Google (Firebase)' : 'Firebase Google Account',
+            `${profile.fullName} (${profile.email})`
+          );
+        }}
+        onSaveUser={(user) => {
+          const finalUser: UserProfileData = {
+            ...user,
+            uid: auth.currentUser?.uid || user.uid,
+          };
+          setCurrentUser(finalUser);
+          setActivePlan(finalUser.planId);
+          try {
+            localStorage.setItem('toolnova_user_profile', JSON.stringify(finalUser));
+          } catch {
+            // ignore
+          }
+          if (auth.currentUser?.uid) {
+            saveUserProfileToFirestore(auth.currentUser.uid, finalUser).catch((err) =>
+              console.error('Failed to save user profile to Firestore:', err)
+            );
+          }
+          handleRecordHistory(
             language === 'ar' ? 'الحساب الشخصي' : 'User Account',
-            `${user.fullName} (${user.email}) · Plan: ${user.planId.toUpperCase()}`
+            `${finalUser.fullName} (${finalUser.email}) · Plan: ${finalUser.planId.toUpperCase()}`
           );
         }}
         onLogout={() => {
+          if (auth.currentUser) {
+            firebaseSignOut(auth).catch((err) => console.error('Sign out error:', err));
+          }
           setCurrentUser(null);
           try {
             localStorage.removeItem('toolnova_user_profile');
@@ -859,10 +1151,39 @@ export default function App() {
             // ignore
           }
         }}
-        onOpenPricing={() => {
-          document
-            .getElementById('pricing-section')
-            ?.scrollIntoView({ behavior: 'smooth' });
+          onOpenPricing={() => {
+            setIsUpgradeModalOpen(true);
+          }}
+        />
+
+      <SubscriptionUpgradeModal
+        isOpen={isUpgradeModalOpen}
+        onClose={() => setIsUpgradeModalOpen(false)}
+        language={language}
+        activePlan={activePlan}
+        onUpgradeSuccess={(plan, method) => {
+          setActivePlan(plan);
+          if (currentUser) {
+            const updated: UserProfileData = {
+              ...currentUser,
+              planId: plan,
+            };
+            setCurrentUser(updated);
+            try {
+              localStorage.setItem('toolnova_user_profile', JSON.stringify(updated));
+            } catch {
+              // ignore
+            }
+            if (auth.currentUser?.uid) {
+              updateUserPlanInFirestore(auth.currentUser.uid, plan).catch((err) =>
+                console.error('Failed to update plan in Firestore:', err)
+              );
+            }
+          }
+          handleRecordHistory(
+            language === 'ar' ? 'ترقية الباقة (Pro)' : 'Subscription Upgrade',
+            `Plan: ${plan.toUpperCase()} via ${method}`
+          );
         }}
       />
     </div>

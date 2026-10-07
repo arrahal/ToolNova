@@ -1,0 +1,342 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default-Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    // 3. Validation Blueprints (Anti-Update-Gap)
+    function isValidUserProfile(data) {
+      return isSignedIn() &&
+      data.keys().hasAll([
+        'uid',
+        'fullName',
+        'companyOrRole',
+        'country',
+        'planId',
+        'joinedAt',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'uid',
+        'fullName',
+        'companyOrRole',
+        'country',
+        'planId',
+        'joinedAt',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.uid is string &&
+      data.uid.size() >= 1 &&
+      data.uid.size() <= 128 &&
+      data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.uid == request.auth.uid &&
+      data.fullName is string &&
+      data.fullName.size() >= 1 &&
+      data.fullName.size() <= 120 &&
+      data.companyOrRole is string &&
+      data.companyOrRole.size() >= 1 &&
+      data.companyOrRole.size() <= 120 &&
+      data.country is string &&
+      data.country.size() >= 1 &&
+      data.country.size() <= 100 &&
+      data.planId is string &&
+      data.planId.size() >= 1 &&
+      data.planId.size() <= 20 &&
+      (data.planId == 'free' || data.planId == 'pro' || data.planId == 'business') &&
+      data.joinedAt is string &&
+      data.joinedAt.size() >= 4 &&
+      data.joinedAt.size() <= 40 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data) {
+      return isSignedIn() &&
+      data.keys().hasAll([
+        'uid',
+        'email',
+        'phone',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'uid',
+        'email',
+        'phone',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.uid is string &&
+      data.uid.size() >= 1 &&
+      data.uid.size() <= 128 &&
+      data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.uid == request.auth.uid &&
+      data.email is string &&
+      data.email.size() >= 3 &&
+      data.email.size() <= 254 &&
+      data.phone is string &&
+      data.phone.size() >= 3 &&
+      data.phone.size() <= 40 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidWorkflow(data) {
+      return isSignedIn() &&
+      data.keys().hasAll([
+        'id',
+        'ownerId',
+        'name',
+        'description',
+        'steps',
+        'estimatedSavedSec',
+        'runsCount',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id',
+        'ownerId',
+        'name',
+        'description',
+        'steps',
+        'estimatedSavedSec',
+        'runsCount',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.id is string &&
+      data.id.size() >= 1 &&
+      data.id.size() <= 128 &&
+      data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId is string &&
+      data.ownerId.size() >= 1 &&
+      data.ownerId.size() <= 128 &&
+      data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId == request.auth.uid &&
+      data.name is string &&
+      data.name.size() >= 1 &&
+      data.name.size() <= 120 &&
+      data.description is string &&
+      data.description.size() >= 1 &&
+      data.description.size() <= 400 &&
+      data.steps is list &&
+      data.steps.size() >= 2 &&
+      data.steps.size() <= 10 &&
+      data.steps[0] is string &&
+      data.steps[0].size() >= 1 &&
+      data.steps[0].size() <= 64 &&
+      data.estimatedSavedSec is number &&
+      data.estimatedSavedSec >= 0 &&
+      data.estimatedSavedSec <= 86400 &&
+      data.runsCount is number &&
+      data.runsCount >= 0 &&
+      data.runsCount <= 1000000 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidActivityLog(data) {
+      return isSignedIn() &&
+      data.keys().hasAll([
+        'id',
+        'ownerId',
+        'toolTitle',
+        'detail',
+        'time',
+        'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id',
+        'ownerId',
+        'toolTitle',
+        'detail',
+        'time',
+        'createdAt'
+      ]) &&
+      data.id is string &&
+      data.id.size() >= 1 &&
+      data.id.size() <= 128 &&
+      data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId is string &&
+      data.ownerId.size() >= 1 &&
+      data.ownerId.size() <= 128 &&
+      data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId == request.auth.uid &&
+      data.toolTitle is string &&
+      data.toolTitle.size() >= 1 &&
+      data.toolTitle.size() <= 140 &&
+      data.detail is string &&
+      data.detail.size() >= 1 &&
+      data.detail.size() <= 300 &&
+      data.time is string &&
+      data.time.size() >= 1 &&
+      data.time.size() <= 32 &&
+      data.createdAt is timestamp;
+    }
+
+    // 4. Collection Match Blocks
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+
+      allow create: if isVerifiedUser() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        isValidUserProfile(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isValidUserProfile(incoming()) &&
+        isVerifiedUser() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        existing().uid == request.auth.uid &&
+        incoming().uid == existing().uid &&
+        incoming().joinedAt == existing().joinedAt &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          // Action 1: Update Profile Details
+          incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'companyOrRole', 'country', 'planId', 'updatedAt']) ||
+          // Action 2: Upgrade or Switch Plan Tier Only
+          incoming().diff(existing()).affectedKeys().hasOnly(['planId', 'updatedAt'])
+        );
+
+      allow delete: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId;
+
+      // Subcollection: Isolated PII (/users/{userId}/private/{docId})
+      match /private/{docId} {
+        allow get: if isSignedIn() &&
+          isValidId(userId) &&
+          isValidId(docId) &&
+          docId == 'info' &&
+          request.auth.uid == userId &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+
+        allow create: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(docId) &&
+          docId == 'info' &&
+          request.auth.uid == userId &&
+          isValidUserPrivateInfo(incoming()) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          (
+            exists(/databases/$(database)/documents/users/$(userId)) ||
+            existsAfter(/databases/$(database)/documents/users/$(userId))
+          );
+
+        allow update: if isValidUserPrivateInfo(incoming()) &&
+          isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(docId) &&
+          docId == 'info' &&
+          request.auth.uid == userId &&
+          existing().uid == request.auth.uid &&
+          incoming().uid == existing().uid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['email', 'phone', 'updatedAt']) &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+
+        allow delete: if isVerifiedUser() &&
+          isValidId(userId) &&
+          isValidId(docId) &&
+          docId == 'info' &&
+          request.auth.uid == userId &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+      }
+    }
+
+    match /workflows/{workflowId} {
+      allow get: if isSignedIn() && isValidId(workflowId) && existing().ownerId == request.auth.uid;
+
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+
+      allow create: if isVerifiedUser() &&
+        isValidId(workflowId) &&
+        isValidWorkflow(incoming()) &&
+        incoming().id == workflowId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+          existsAfter(/databases/$(database)/documents/users/$(request.auth.uid))
+        );
+
+      allow update: if isValidWorkflow(incoming()) &&
+        isVerifiedUser() &&
+        isValidId(workflowId) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().id == existing().id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          // Action 1: Edit Workflow Definition
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'steps', 'estimatedSavedSec', 'updatedAt']) ||
+          // Action 2: Increment Workflow Run Counter
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['runsCount', 'updatedAt']) &&
+            incoming().runsCount == existing().runsCount + 1
+          )
+        ) &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+
+      allow delete: if isVerifiedUser() &&
+        isValidId(workflowId) &&
+        existing().ownerId == request.auth.uid;
+    }
+
+    match /activityLogs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && existing().ownerId == request.auth.uid;
+
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+
+      allow create: if isVerifiedUser() &&
+        isValidId(logId) &&
+        isValidActivityLog(incoming()) &&
+        incoming().id == logId &&
+        incoming().createdAt == request.time &&
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+          existsAfter(/databases/$(database)/documents/users/$(request.auth.uid))
+        );
+
+      allow update: if false;
+
+      allow delete: if isVerifiedUser() &&
+        isValidId(logId) &&
+        existing().ownerId == request.auth.uid;
+    }
+  }
+}

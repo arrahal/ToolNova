@@ -16,6 +16,8 @@ import {
 import { AppLanguage } from '../data/translations';
 
 export interface UserProfileData {
+  uid?: string;
+  photoURL?: string;
   fullName: string;
   email: string;
   phone: string;
@@ -33,6 +35,7 @@ interface AuthAccountModalProps {
   onSaveUser: (user: UserProfileData) => void;
   onLogout: () => void;
   onOpenPricing?: () => void;
+  onGoogleSignIn?: () => Promise<void>;
 }
 
 const AUTH_LABELS: Record<
@@ -199,6 +202,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
   onSaveUser,
   onLogout,
   onOpenPricing,
+  onGoogleSignIn,
 }) => {
   const [mode, setMode] = useState<'login' | 'register'>('register');
   const [fullName, setFullName] = useState('');
@@ -210,6 +214,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
   const [planId, setPlanId] = useState<'free' | 'pro' | 'business'>('pro');
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [formError, setFormError] = useState('');
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const L = AUTH_LABELS[language];
 
@@ -267,13 +272,14 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
         .replace(/\b\w/g, (c) => c.toUpperCase());
 
     const profile: UserProfileData = {
-      fullName: derivedName,
-      email: cleanEmail,
-      phone: phone.trim() || '+212 600-000000',
-      companyOrRole: companyOrRole.trim() || 'Independent Professional',
-      country: country.trim() || 'Morocco',
+      uid: currentUser?.uid,
+      fullName: derivedName.slice(0, 120),
+      email: cleanEmail.slice(0, 254),
+      phone: (phone.trim() || '+212 600-000000').slice(0, 40),
+      companyOrRole: (companyOrRole.trim() || 'Independent Professional').slice(0, 120),
+      country: (country.trim() || 'Morocco').slice(0, 100),
       planId,
-      joinedAt: currentUser?.joinedAt || new Date().toISOString().slice(0, 10),
+      joinedAt: (currentUser?.joinedAt || new Date().toISOString().slice(0, 10)).slice(0, 40),
     };
 
     onSaveUser(profile);
@@ -354,6 +360,66 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
             <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>{L.savedToast}</span>
+            </div>
+          )}
+
+          {onGoogleSignIn && !currentUser?.uid && (
+            <div className="pb-2 border-b border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                disabled={isGoogleLoading}
+                onClick={async () => {
+                  setFormError('');
+                  setIsGoogleLoading(true);
+                  try {
+                    await onGoogleSignIn();
+                    onClose();
+                  } catch (err) {
+                    setFormError(
+                      err instanceof Error
+                        ? err.message
+                        : language === 'ar'
+                        ? 'تعذر تسجيل الدخول عبر Google'
+                        : 'Google Sign-In failed'
+                    );
+                  } finally {
+                    setIsGoogleLoading(false);
+                  }
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 hover:border-slate-300 text-xs font-bold text-[#111827] dark:text-white flex items-center justify-center gap-2.5 shadow-2xs transition-all cursor-pointer disabled:opacity-60"
+              >
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#EA4335"
+                    d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z"
+                  />
+                  <path
+                    fill="#4285F4"
+                    d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 20.9 7.4 24 12 24z"
+                  />
+                </svg>
+                <span>
+                  {isGoogleLoading
+                    ? language === 'ar'
+                      ? 'جاري الاتصال بـ Firebase...'
+                      : 'Connecting to Firebase...'
+                    : language === 'ar'
+                    ? 'المتابعة باستخدام حساب Google (Firebase Cloud)'
+                    : language === 'fr'
+                    ? 'Continuer avec Google (Firebase Cloud)'
+                    : language === 'es'
+                    ? 'Continuar con Google (Firebase Cloud)'
+                    : 'Continue with Google (Firebase Cloud)'}
+                </span>
+              </button>
             </div>
           )}
 

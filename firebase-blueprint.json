@@ -1,0 +1,256 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public and workspace profile attributes for a registered user without raw PII.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Display name of the user",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "companyOrRole": {
+          "type": "string",
+          "description": "Profession, company, or role",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "country": {
+          "type": "string",
+          "description": "Country or city name",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "planId": {
+          "type": "string",
+          "description": "Selected subscription tier",
+          "enum": ["free", "pro", "business"],
+          "maxLength": 20
+        },
+        "joinedAt": {
+          "type": "string",
+          "description": "ISO date string when the user joined",
+          "minLength": 4,
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was last updated"
+        }
+      },
+      "required": [
+        "uid",
+        "fullName",
+        "companyOrRole",
+        "country",
+        "planId",
+        "joinedAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII document storing sensitive user contact information.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Email address of the user",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "phone": {
+          "type": "string",
+          "description": "Phone number of the user",
+          "minLength": 3,
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the PII record was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the PII record was last updated"
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "phone",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Workflow": {
+      "title": "Workflow",
+      "description": "Custom multi-step media processing workflow saved by a user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique workflow identifier",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the workflow creator",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Workflow display title",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "description": "Summary of what the pipeline automates",
+          "minLength": 1,
+          "maxLength": 400
+        },
+        "steps": {
+          "type": "array",
+          "description": "Ordered list of tool IDs (bounded to max 10 steps)"
+        },
+        "estimatedSavedSec": {
+          "type": "number",
+          "description": "Estimated seconds saved per run"
+        },
+        "runsCount": {
+          "type": "number",
+          "description": "Total number of times executed"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "name",
+        "description",
+        "steps",
+        "estimatedSavedSec",
+        "runsCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Audit log item recording a completed tool or workflow execution for a user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique log identifier",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "toolTitle": {
+          "type": "string",
+          "description": "Title of the executed tool or workflow",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "detail": {
+          "type": "string",
+          "description": "Execution summary details",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "time": {
+          "type": "string",
+          "description": "Formatted time string (HH:MM:SS)",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the log entry was created"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "toolTitle",
+        "detail",
+        "time",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Stores workspace profile and active subscription tier for each user."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": {
+        "$ref": "#/entities/UserPrivateInfo"
+      },
+      "description": "Stores isolated PII (email and phone) accessible strictly by the document owner."
+    },
+    "/workflows/{workflowId}": {
+      "schema": {
+        "$ref": "#/entities/Workflow"
+      },
+      "description": "Stores custom user-created multi-step media workflows."
+    },
+    "/activityLogs/{logId}": {
+      "schema": {
+        "$ref": "#/entities/ActivityLog"
+      },
+      "description": "Stores per-user tool execution history logs."
+    }
+  }
+}
