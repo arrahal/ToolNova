@@ -382,8 +382,8 @@ export default function App() {
           ToolNova
         </a>
 
-        <nav className="hidden lg:flex items-center gap-6 text-xs sm:text-[13px] font-bold text-slate-700 dark:text-slate-300">
-          {(['pdf', 'image', 'audio', 'video', 'workflows'] as const).map(
+        <nav className="hidden lg:flex items-center gap-5 text-xs sm:text-[13px] font-bold text-slate-700 dark:text-slate-300">
+          {(['pdf', 'word', 'excel', 'powerpoint', 'image', 'text', 'workflows'] as const).map(
             (navId) => (
               <button
                 key={navId}

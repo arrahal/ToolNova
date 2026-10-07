@@ -47,15 +47,15 @@ export interface UiStrings {
   accountProfileLabel: string;
   logoutBtnLabel: string;
   categoryLabels: Record<HubCategory, string>;
-  hubLabels: Record<'pdf' | 'image' | 'audio' | 'video', string>;
+  hubLabels: Record<'pdf' | 'word' | 'excel' | 'powerpoint' | 'image' | 'text' | 'audio' | 'video', string>;
 }
 
 export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
   ar: {
     heroTitle: 'مرحباً بك، لنبدأ العمل الآن',
     heroSubtitlePrefix: 'منصتك الذكية الشاملة لمعالجة المستندات والوسائط · ',
-    heroSubtitleSuffix: ' أداة احترافية تعمل مباشرة في متصفحك (PDF، صور، صوت، فيديو)',
-    searchPlaceholder: 'ابحث عن أداة أو صيغة (مثل: دمج PDF، PDF إلى Word، إزالة الخلفية، Excel)...',
+    heroSubtitleSuffix: ' أداة احترافية تعمل مباشرة في متصفحك (PDF، Word، Excel، PowerPoint، صور، نصوص، صوت، فيديو)',
+    searchPlaceholder: 'ابحث عن أداة أو صيغة (مثل: دمج PDF، إصلاح Word، تنظيف Excel، PowerPoint، إزالة الخلفية، استخراج إيميلات)...',
     createWorkflowBtn: 'إنشاء مسار عمل',
     createWorkflowCardTitle: 'أنشئ مسار عمل مخصص',
     createWorkflowCardDesc:
@@ -64,13 +64,13 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     newBadge: 'جديد!',
     workYourWayTitle: 'اعمل بطريقتك الخاصة',
     workYourWaySubtitle:
-      'اربط أدوات الـ PDF والصور والصوت والفيديو في مسارات عمل ذكية داخل المتصفح — أو شغّل أحد المسارات الجاهزة بضغطة واحدة.',
+      'اربط أدوات الـ PDF والـ Word والـ Excel والصور والنصوص والصوت في مسارات عمل ذكية داخل المتصفح — أو شغّل أحد المسارات الجاهزة بضغطة واحدة.',
     presetPipelineLabel: 'مسار جاهز',
     savedSecSuffix: 'ثانية موفرة',
     launchBtn: 'تشغيل',
     privacyTitle: 'خصوصية وأمان 100% داخل متصفحك',
     privacyDesc:
-      'تتم معالجة جميع ملفات الـ PDF، السير الذاتية، الصور، والتسجيلات الصوتية محلياً عبر تقنيات WebAssembly و PDF.js دون رفع أي ملف لخوادم خارجية.',
+      'تتم معالجة جميع ملفات الـ PDF، مستندات Word، جداول Excel، العروض التقديمية، الصور، والتسجيلات محلياً عبر WebAssembly دون رفع أي ملف لخوادم خارجية.',
     sessionActivityTitle: 'سجل العمليات في هذه الجلسة',
     sessionCompletedSuffix: 'مكتملة',
     sessionEmptyDesc:
@@ -79,7 +79,7 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     noToolsDesc: 'لا توجد أداة تطابق بحثك في هذا القسم.',
     resetFiltersBtn: 'إعادة ضبط الفلاتر',
     savedWorkflowsTitle: 'مسارات العمل المحفوظة',
-    savedWorkflowsDesc: 'قم بأتمتة مهام الـ PDF والصور والصوت في خطوات متسلسلة.',
+    savedWorkflowsDesc: 'قم بأتمتة مهام الـ PDF والـ Office والصور والصوت في خطوات متسلسلة.',
     newWorkflowBtn: 'مسار جديد',
     runPipelineBtn: 'تشغيل المسار الآن',
     pricingNavLabel: 'الأسعار والباقات',
@@ -91,7 +91,11 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
       all: 'الكل',
       workflows: 'مسارات العمل',
       pdf: 'أدوات PDF',
+      word: 'أدوات Word',
+      excel: 'أدوات Excel',
+      powerpoint: 'PowerPoint',
       image: 'استوديو الصور',
+      text: 'النصوص والمعالجة',
       audio: 'مختبر الصوت',
       video: 'الفيديو والذكاء الاصطناعي',
       convert: 'التحويل والتصدير',
@@ -99,7 +103,11 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     },
     hubLabels: {
       pdf: 'أدوات PDF',
+      word: 'استوديو Word',
+      excel: 'بيانات Excel',
+      powerpoint: 'عروض PowerPoint',
       image: 'استوديو الصور',
+      text: 'معالج النصوص',
       audio: 'مختبر الصوت',
       video: 'الفيديو والذكاء',
     },
@@ -107,9 +115,9 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
   fr: {
     heroTitle: 'Bonjour, commençons maintenant',
     heroSubtitlePrefix: 'Votre boîte à outils intelligente tout-en-un · ',
-    heroSubtitleSuffix: ' outils locaux pour PDF, Images, Audio et Vidéo',
+    heroSubtitleSuffix: ' outils locaux pour PDF, Word, Excel, PowerPoint, Images, Texte, Audio et Vidéo',
     searchPlaceholder:
-      'Rechercher un outil ou format (ex: Fusionner PDF, PDF en Word, Excel, Détourage)...',
+      'Rechercher un outil ou format (ex: Fusionner PDF, Réparer Word, Nettoyer Excel, PowerPoint, Détourage)...',
     createWorkflowBtn: 'Créer un flux',
     createWorkflowCardTitle: 'Créer un flux de travail',
     createWorkflowCardDesc:
@@ -118,13 +126,13 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     newBadge: 'Nouveau!',
     workYourWayTitle: 'Travaillez à votre façon',
     workYourWaySubtitle:
-      'Enchaînez les outils PDF, Image, Audio et Vidéo dans votre navigateur ou lancez un flux prédéfini en un clic.',
+      'Enchaînez les outils PDF, Office, Image, Texte, Audio et Vidéo dans votre navigateur ou lancez un flux prédéfini en un clic.',
     presetPipelineLabel: 'Flux prédéfini',
     savedSecSuffix: 's gagnées',
     launchBtn: 'Lancer',
     privacyTitle: 'Architecture 100% confidentielle côté client',
     privacyDesc:
-      'Propulsé par WebAssembly, pdf-lib, PDF.js et HTML5 Canvas. Vos CV, PDF, photos et fichiers audio ne quittent jamais votre navigateur.',
+      'Propulsé par WebAssembly, pdf-lib, PDF.js, ExcelJS et HTML5 Canvas. Vos CV, PDF, Word, Excel, photos et fichiers audio ne quittent jamais votre navigateur.',
     sessionActivityTitle: 'Activité de la session locale',
     sessionCompletedSuffix: 'terminées',
     sessionEmptyDesc:
@@ -133,7 +141,7 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     noToolsDesc: 'Aucun outil ne correspond à votre recherche dans cette catégorie.',
     resetFiltersBtn: 'Réinitialiser les filtres',
     savedWorkflowsTitle: 'Flux de travail enregistrés',
-    savedWorkflowsDesc: 'Automatisez vos tâches PDF, Image, Audio et Vidéo en séquence.',
+    savedWorkflowsDesc: 'Automatisez vos tâches PDF, Office, Image, Audio et Vidéo en séquence.',
     newWorkflowBtn: 'Nouveau flux',
     runPipelineBtn: 'Exécuter le flux',
     pricingNavLabel: 'Tarifs & Forfaits',
@@ -145,7 +153,11 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
       all: 'Tout',
       workflows: 'Flux de travail',
       pdf: 'Hub PDF',
+      word: 'Studio Word',
+      excel: 'Excel & Données',
+      powerpoint: 'PowerPoint',
       image: 'Studio Image',
+      text: 'Texte & Outils',
       audio: 'Labo Audio',
       video: 'Vidéo & IA',
       convert: 'Convertir & Exporter',
@@ -153,17 +165,21 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     },
     hubLabels: {
       pdf: 'Hub PDF',
+      word: 'Studio Word',
+      excel: 'Excel & Données',
+      powerpoint: 'PowerPoint',
       image: 'Studio Image',
+      text: 'Outils Texte',
       audio: 'Labo Audio',
       video: 'Vidéo & IA',
     },
   },
   en: {
     heroTitle: "Hi there, let's get started",
-    heroSubtitlePrefix: 'Your All-in-One Smart Media & Document Toolbox · ',
-    heroSubtitleSuffix: ' Client-Side Tools across PDF, Image, Audio & Video',
+    heroSubtitlePrefix: 'Your All-in-One Smart Media & Office Toolbox · ',
+    heroSubtitleSuffix: ' Client-Side Tools across PDF, Word, Excel, PowerPoint, Image, Text, Audio & Video',
     searchPlaceholder:
-      'Search tools by name or format (e.g., Merge PDF, PDF to Word, Background Remover, MP3)...',
+      'Search tools by name or format (e.g., Merge PDF, Word Doctor, Excel Cleaner, PowerPoint, Background Remover)...',
     createWorkflowBtn: 'Create Workflow',
     createWorkflowCardTitle: 'Create a workflow',
     createWorkflowCardDesc:
@@ -172,13 +188,13 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     newBadge: 'New!',
     workYourWayTitle: 'Work your way',
     workYourWaySubtitle:
-      'Chain PDF, Image, Audio, and Video tools into zero-upload browser pipelines—or launch any preset workflow below with one click.',
+      'Chain PDF, Word, Excel, PowerPoint, Image, Text, Audio, and Video tools into zero-upload browser pipelines—or launch any preset workflow below with one click.',
     presetPipelineLabel: 'Preset Pipeline',
     savedSecSuffix: 's saved',
     launchBtn: 'Launch',
     privacyTitle: '100% Client-Side Privacy Architecture',
     privacyDesc:
-      'Powered by WebAssembly, pdf-lib, PDF.js, Web Audio DSP, and HTML5 Canvas. Your confidential PDFs, photos, and videos never leave your browser.',
+      'Powered by WebAssembly, pdf-lib, PDF.js, ExcelJS, PptxGenJS, and HTML5 Canvas. Your confidential PDFs, Word docs, spreadsheets, photos, and videos never leave your browser.',
     sessionActivityTitle: 'Local Session Activity',
     sessionCompletedSuffix: 'completed',
     sessionEmptyDesc:
@@ -188,7 +204,7 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     resetFiltersBtn: 'Reset Filters',
     savedWorkflowsTitle: 'Saved Multi-Step Workflows',
     savedWorkflowsDesc:
-      'Automate repetitive PDF, Image, Audio, and Video tasks in a single sequential pipeline.',
+      'Automate repetitive PDF, Office, Image, Audio, and Video tasks in a single sequential pipeline.',
     newWorkflowBtn: 'New Workflow',
     runPipelineBtn: 'Run Pipeline Now',
     pricingNavLabel: 'Pricing & Plans',
@@ -200,7 +216,11 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
       all: 'All',
       workflows: 'Workflows',
       pdf: 'PDF Hub',
+      word: 'Word Studio',
+      excel: 'Excel & Data',
+      powerpoint: 'PowerPoint',
       image: 'Image Studio',
+      text: 'Text & Fixer',
       audio: 'Audio Lab',
       video: 'Video & AI',
       convert: 'Convert & Export',
@@ -208,7 +228,11 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     },
     hubLabels: {
       pdf: 'PDF Hub',
+      word: 'Word Studio',
+      excel: 'Excel & Data',
+      powerpoint: 'PowerPoint',
       image: 'Image Studio',
+      text: 'Text & Fixer',
       audio: 'Audio Lab',
       video: 'Video & AI',
     },
@@ -216,9 +240,9 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
   es: {
     heroTitle: 'Hola, empecemos ahora',
     heroSubtitlePrefix: 'Tu caja de herramientas inteligente todo en uno · ',
-    heroSubtitleSuffix: ' herramientas locales para PDF, Imagen, Audio y Video',
+    heroSubtitleSuffix: ' herramientas locales para PDF, Word, Excel, PowerPoint, Imagen, Texto, Audio y Video',
     searchPlaceholder:
-      'Buscar herramientas o formatos (ej: Unir PDF, PDF a Word, Quitar fondo, Excel)...',
+      'Buscar herramientas o formatos (ej: Unir PDF, Reparar Word, Limpiar Excel, PowerPoint, Quitar fondo)...',
     createWorkflowBtn: 'Crear flujo',
     createWorkflowCardTitle: 'Crear un flujo de trabajo',
     createWorkflowCardDesc:
@@ -227,13 +251,13 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     newBadge: '¡Nuevo!',
     workYourWayTitle: 'Trabaja a tu manera',
     workYourWaySubtitle:
-      'Encadena herramientas de PDF, Imagen, Audio y Video en tu navegador o ejecuta un flujo predefinido con un clic.',
+      'Encadena herramientas de PDF, Office, Imagen, Texto, Audio y Video en tu navegador o ejecuta un flujo predefinido con un clic.',
     presetPipelineLabel: 'Flujo predefinido',
     savedSecSuffix: 's ahorrados',
     launchBtn: 'Ejecutar',
     privacyTitle: 'Privacidad 100% en tu navegador',
     privacyDesc:
-      'Impulsado por WebAssembly, pdf-lib, PDF.js y HTML5 Canvas. Tus documentos PDF, fotos y audios nunca salen de tu dispositivo.',
+      'Impulsado por WebAssembly, pdf-lib, PDF.js, ExcelJS y HTML5 Canvas. Tus documentos PDF, Word, Excel, fotos y audios nunca salen de tu dispositivo.',
     sessionActivityTitle: 'Actividad de la sesión local',
     sessionCompletedSuffix: 'completadas',
     sessionEmptyDesc:
@@ -242,7 +266,7 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     noToolsDesc: 'Ninguna herramienta coincide con tu búsqueda en esta categoría.',
     resetFiltersBtn: 'Restablecer filtros',
     savedWorkflowsTitle: 'Flujos de trabajo guardados',
-    savedWorkflowsDesc: 'Automatiza tareas repetitivas de PDF, Imagen, Audio y Video en secuencia.',
+    savedWorkflowsDesc: 'Automatiza tareas repetitivas de PDF, Office, Imagen, Audio y Video en secuencia.',
     newWorkflowBtn: 'Nuevo flujo',
     runPipelineBtn: 'Ejecutar flujo ahora',
     pricingNavLabel: 'Precios y Planes',
@@ -254,7 +278,11 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
       all: 'Todo',
       workflows: 'Flujos',
       pdf: 'Hub PDF',
+      word: 'Studio Word',
+      excel: 'Excel y Datos',
+      powerpoint: 'PowerPoint',
       image: 'Estudio Imagen',
+      text: 'Texto y Utilidades',
       audio: 'Lab Audio',
       video: 'Video e IA',
       convert: 'Convertir y Exportar',
@@ -262,7 +290,11 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     },
     hubLabels: {
       pdf: 'Hub PDF',
+      word: 'Studio Word',
+      excel: 'Excel y Datos',
+      powerpoint: 'PowerPoint',
       image: 'Estudio Imagen',
+      text: 'Texto y Utilidades',
       audio: 'Lab Audio',
       video: 'Video e IA',
     },
@@ -691,6 +723,146 @@ const TOOL_TEXT_TRANSLATIONS: Record<
     es: {
       title: 'Voz a Texto / Transcribir',
       description: 'Transcribe grabaciones o dictado en vivo a texto, Markdown o subtítulos SRT.',
+    },
+  },
+  'word-format-doctor': {
+    ar: {
+      title: 'مصلح تنسيق مستندات Word',
+      description: 'أصلح تقطع الأسطر بعد النسخ من PDF، احذف الفراغات الزائدة، واضبط علامات الترقيم العربية وصدّر ملف Word (.DOCX) منسق.',
+    },
+    fr: {
+      title: 'Réparateur de format Word',
+      description: 'Corrigez les sauts de ligne cassés, supprimez les espaces doubles et exportez un fichier Word (.DOCX) propre.',
+    },
+    es: {
+      title: 'Doctor de Formato Word',
+      description: 'Corrige saltos de línea rotos al copiar de PDF, limpia espacios extra y exporta un documento Word (.DOCX) impecable.',
+    },
+  },
+  'merge-word-docs': {
+    ar: {
+      title: 'دمج ملفات Word (.DOCX)',
+      description: 'ادمج عدة ملفات Word ونصوص في مستند (.DOCX) موحد مع فهرس تلقائي وفواصل صفحات احترافية.',
+    },
+    fr: {
+      title: 'Fusionner des fichiers Word',
+      description: 'Combinez plusieurs documents Word (.DOCX) et textes en un seul fichier maître avec table des matières.',
+    },
+    es: {
+      title: 'Unir Documentos Word',
+      description: 'Combina varios archivos Word (.DOCX) y textos en un documento maestro con saltos de página automáticos.',
+    },
+  },
+  'excel-duplicate-cleaner': {
+    ar: {
+      title: 'منظف بيانات وتكرارات Excel',
+      description: 'احذف الصفوف المكررة والفارغة تلقائياً، نظّف المسافات المخفية، وحّد حالة الأحرف وصدّر جدول Excel (.XLSX) نظيف.',
+    },
+    fr: {
+      title: 'Nettoyeur de doublons Excel',
+      description: 'Supprimez les lignes en double, nettoyez les espaces invisibles et exportez une feuille Excel (.XLSX) propre.',
+    },
+    es: {
+      title: 'Limpiador de Duplicados Excel',
+      description: 'Elimina filas duplicadas y vacías, limpia espacios ocultos y exporta una tabla Excel (.XLSX) estructurada.',
+    },
+  },
+  'excel-csv-converter': {
+    ar: {
+      title: 'محول Excel / CSV / JSON إلى PDF',
+      description: 'أصلح مشاكل ترميز ملفات CSV العربية، وحوّل بيانات CSV و JSON إلى جداول Excel (.XLSX) ملونة أو تقارير PDF.',
+    },
+    fr: {
+      title: 'Convertisseur Excel / CSV / JSON & PDF',
+      description: 'Corrigez l’encodage CSV et convertissez vos données CSV ou JSON en tableaux Excel (.XLSX) ou rapports PDF.',
+    },
+    es: {
+      title: 'Convertidor Excel / CSV / JSON y PDF',
+      description: 'Corrige la codificación CSV y convierte datos JSON o CSV en hojas Excel (.XLSX) o informes PDF.',
+    },
+  },
+  'ppt-slide-generator': {
+    ar: {
+      title: 'صانع عروض PowerPoint الذكي',
+      description: 'حوّل ملخصات الاجتماعات والمحاضرات أو النقاط النصية فوراً إلى عرض تقديمي (.PPTX) بشرائح عريضة 16:9 جاهزة.',
+    },
+    fr: {
+      title: 'Créateur instantané PowerPoint',
+      description: 'Transformez vos notes de réunion ou plans de cours en une présentation PowerPoint (.PPTX) 16:9 en un clic.',
+    },
+    es: {
+      title: 'Creador Instantáneo de PowerPoint',
+      description: 'Convierte apuntes, esquemas o texto en una presentación PowerPoint (.PPTX) panorámica 16:9 al instante.',
+    },
+  },
+  'ppt-notes-extractor': {
+    ar: {
+      title: 'محول العروض إلى ملخص Word و PDF',
+      description: 'حوّل نقاط وعناوين العروض التقديمية إلى مذكرة مراجعة وتلخيص جاهزة للطباعة بصيغة Word (.DOCX) أو PDF.',
+    },
+    fr: {
+      title: 'Générateur de synthèse PowerPoint',
+      description: 'Convertissez le plan de vos diapositives en un document de synthèse imprimable Word (.DOCX) ou PDF.',
+    },
+    es: {
+      title: 'Generador de Apuntes de Presentación',
+      description: 'Convierte el esquema de tus diapositivas en un resumen imprimible en formato Word (.DOCX) o PDF.',
+    },
+  },
+  'id-passport-photo-maker': {
+    ar: {
+      title: 'صانع صور البطاقة وجواز السفر والـ CV',
+      description: 'صمّم صور رسمية بمقاس 35×45 مم أو 2×2 بوصة للسيرة الذاتية والوثائق مع خلفية استوديو موحدة وورقة طباعة مجمعة.',
+    },
+    fr: {
+      title: 'Photo d’identité & Passeport Pro',
+      description: 'Créez des photos biométriques 35×45mm ou 2×2 pouces pour CV et passeport avec planche d’impression 4×6.',
+    },
+    es: {
+      title: 'Creador de Fotos Carnet y Pasaporte',
+      description: 'Crea fotos biométricas 35×45mm o 2×2 pulgadas para CV y documentos con hoja imprimible de múltiples fotos.',
+    },
+  },
+  'image-watermark-privacy': {
+    ar: {
+      title: 'ختم الصور وإخفاء البيانات الحساسة',
+      description: 'احمِ صورك ووثائقك بعلامة مائية متكررة مع تمويه أو طمس أرقام البطاقات والتواقيع والمعلومات السرية.',
+    },
+    fr: {
+      title: 'Filigrane Photo & Floutage Confidentialité',
+      description: 'Protégez vos images par filigrane répété et floutez les numéros confidentiels ou informations sensibles.',
+    },
+    es: {
+      title: 'Marca de Agua y Censura de Privacidad',
+      description: 'Protege fotos con marca de agua en mosaico y pixela u oculta datos sensibles o números de identificación.',
+    },
+  },
+  'smart-text-cleaner': {
+    ar: {
+      title: 'منظف النصوص وإزالة التشكيل العربي',
+      description: 'أزل التشكيل والحركات والـ كشيدة من النصوص العربية، احذف الأسطر المكررة، رتّب القوائم أبجدياً واحسب عدد الكلمات.',
+    },
+    fr: {
+      title: 'Nettoyeur de Texte & Diacritiques',
+      description: 'Supprimez le Tashkeel arabe, éliminez les lignes dupliquées, triez vos listes A–Z et comptez les mots.',
+    },
+    es: {
+      title: 'Limpiador Inteligente de Texto',
+      description: 'Elimina signos diacríticos, borra líneas duplicadas, ordena listas A–Z y analiza estadísticas de palabras.',
+    },
+  },
+  'data-extractor-studio': {
+    ar: {
+      title: 'مستخرج الإيميلات وأرقام الهواتف',
+      description: 'استخرج جميع عناوين البريد الإلكتروني وأرقام الهواتف تلقائياً من النصوص الطويلة والملفات في قائمة منظمة.',
+    },
+    fr: {
+      title: 'Extracteur d’Emails & Téléphones',
+      description: 'Extrayez automatiquement toutes les adresses e-mail et numéros de téléphone depuis un texte brut ou fichier.',
+    },
+    es: {
+      title: 'Extractor de Correos y Teléfonos',
+      description: 'Extrae automáticamente todas las direcciones de email y números de teléfono desde textos o registros.',
     },
   },
 };

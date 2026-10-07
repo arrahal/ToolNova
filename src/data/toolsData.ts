@@ -27,6 +27,15 @@ import {
   Film,
   Clapperboard,
   Mic,
+  Wand2,
+  Files,
+  TableProperties,
+  FileSpreadsheet,
+  Presentation as SlideIcon,
+  UserSquare2,
+  ShieldAlert,
+  AlignLeft,
+  AtSign,
   LucideIcon,
 } from 'lucide-react';
 
@@ -34,7 +43,11 @@ export type HubCategory =
   | 'all'
   | 'workflows'
   | 'pdf'
+  | 'word'
+  | 'excel'
+  | 'powerpoint'
   | 'image'
+  | 'text'
   | 'audio'
   | 'video'
   | 'convert'
@@ -53,7 +66,7 @@ export interface ToolItem {
   id: string;
   title: string;
   description: string;
-  hub: 'pdf' | 'image' | 'audio' | 'video';
+  hub: 'pdf' | 'word' | 'excel' | 'powerpoint' | 'image' | 'text' | 'audio' | 'video';
   hubLabel: string;
   subcategories: HubCategory[];
   icon: LucideIcon;
@@ -77,7 +90,11 @@ export const CATEGORY_TABS: { id: HubCategory; label: string; count?: number }[]
   { id: 'all', label: 'All' },
   { id: 'workflows', label: 'Workflows' },
   { id: 'pdf', label: 'PDF Hub' },
+  { id: 'word', label: 'Word Studio' },
+  { id: 'excel', label: 'Excel & Data' },
+  { id: 'powerpoint', label: 'PowerPoint' },
   { id: 'image', label: 'Image Studio' },
+  { id: 'text', label: 'Text & Fixer' },
   { id: 'audio', label: 'Audio Lab' },
   { id: 'video', label: 'Video & AI' },
   { id: 'convert', label: 'Convert & Export' },
@@ -132,7 +149,7 @@ export const TOOLS_DATA: ToolItem[] = [
       'Easily convert your PDF files into easy to edit DOC and DOCX documents with preserved layout.',
     hub: 'pdf',
     hubLabel: 'PDF Hub',
-    subcategories: ['pdf', 'convert'],
+    subcategories: ['pdf', 'word', 'convert'],
     icon: FileText,
     tileColor: 'blue',
     engineTag: 'DocEngine · Client',
@@ -146,7 +163,7 @@ export const TOOLS_DATA: ToolItem[] = [
       'Turn your PDF files into easy to edit PPT and PPTX slideshows in seconds.',
     hub: 'pdf',
     hubLabel: 'PDF Hub',
-    subcategories: ['pdf', 'convert'],
+    subcategories: ['pdf', 'powerpoint', 'convert'],
     icon: Presentation,
     tileColor: 'coral',
     engineTag: 'SlideParser · Client',
@@ -160,7 +177,7 @@ export const TOOLS_DATA: ToolItem[] = [
       'Pull tabular data straight from PDFs into structured Excel spreadsheets and CSVs.',
     hub: 'pdf',
     hubLabel: 'PDF Hub',
-    subcategories: ['pdf', 'convert'],
+    subcategories: ['pdf', 'excel', 'convert'],
     icon: Sheet,
     tileColor: 'emerald',
     engineTag: 'TableExtract · Client',
@@ -174,7 +191,7 @@ export const TOOLS_DATA: ToolItem[] = [
       'Make DOC, DOCX, TXT, and Markdown files easy to read by converting them to PDF.',
     hub: 'pdf',
     hubLabel: 'PDF Hub',
-    subcategories: ['pdf', 'convert'],
+    subcategories: ['pdf', 'word', 'convert'],
     icon: FileText,
     tileColor: 'blue',
     engineTag: 'Mammoth + pdf-lib',
@@ -489,11 +506,167 @@ export const TOOLS_DATA: ToolItem[] = [
       'Auto-transcribe audio and video recordings into structured, timestamped text, Markdown, or SRT captions.',
     hub: 'video',
     hubLabel: 'Video & AI',
-    subcategories: ['video', 'audio', 'convert'],
+    subcategories: ['video', 'audio', 'convert', 'text'],
     icon: Mic,
     tileColor: 'violet',
     engineTag: 'Whisper Wasm · WebSpeech',
     formats: ['MP3', 'MP4', 'WAV', 'SRT'],
+    isNew: true,
+  },
+
+  // ================= 5. WORD STUDIO (PROBLEM SOLVERS) =================
+  {
+    id: 'word-format-doctor',
+    title: 'Word Formatting Doctor',
+    description:
+      'Fix broken lines copied from PDFs, remove extra spaces, repair Arabic RTL punctuation, and export a clean .DOCX.',
+    hub: 'word',
+    hubLabel: 'Word Studio',
+    subcategories: ['word', 'text', 'security'],
+    icon: Wand2,
+    tileColor: 'blue',
+    engineTag: 'DOCX Doctor · Client',
+    formats: ['DOCX', 'TXT'],
+    isNew: true,
+    badgeText: 'W',
+  },
+  {
+    id: 'merge-word-docs',
+    title: 'Merge Word Documents',
+    description:
+      'Combine multiple Word (.DOCX) and text files into a single master document with automatic section headers and page breaks.',
+    hub: 'word',
+    hubLabel: 'Word Studio',
+    subcategories: ['word', 'convert'],
+    icon: Files,
+    tileColor: 'blue',
+    engineTag: 'DOCX Merger · Local',
+    formats: ['DOCX'],
+    isNew: true,
+    badgeText: 'W',
+  },
+
+  // ================= 6. EXCEL & DATA (PROBLEM SOLVERS) =================
+  {
+    id: 'excel-duplicate-cleaner',
+    title: 'Excel Duplicate & Data Cleaner',
+    description:
+      'Eliminate duplicate rows, trim messy whitespace, remove blank lines, standardize text casing, and export clean .XLSX.',
+    hub: 'excel',
+    hubLabel: 'Excel & Data',
+    subcategories: ['excel', 'security'],
+    icon: TableProperties,
+    tileColor: 'emerald',
+    engineTag: 'ExcelJS · Dedupe',
+    formats: ['XLSX', 'CSV'],
+    isNew: true,
+    badgeText: 'X',
+  },
+  {
+    id: 'excel-csv-converter',
+    title: 'Excel / CSV / JSON Converter & PDF',
+    description:
+      'Fix broken CSV encodings, convert JSON arrays or CSVs into styled Excel (.XLSX) tables or landscape PDF reports.',
+    hub: 'excel',
+    hubLabel: 'Excel & Data',
+    subcategories: ['excel', 'convert', 'pdf'],
+    icon: FileSpreadsheet,
+    tileColor: 'emerald',
+    engineTag: 'ExcelJS + pdf-lib',
+    formats: ['XLSX', 'CSV', 'JSON', 'PDF'],
+    isNew: true,
+    badgeText: 'X',
+  },
+
+  // ================= 7. POWERPOINT STUDIO (PROBLEM SOLVERS) =================
+  {
+    id: 'ppt-slide-generator',
+    title: 'Instant PowerPoint Slide Maker',
+    description:
+      'Turn meeting notes, lecture outlines, or raw text into a 16:9 widescreen PowerPoint (.PPTX) presentation in one click.',
+    hub: 'powerpoint',
+    hubLabel: 'PowerPoint',
+    subcategories: ['powerpoint', 'convert'],
+    icon: SlideIcon,
+    tileColor: 'coral',
+    engineTag: 'PptxGenJS · 16:9',
+    formats: ['PPTX', 'TXT'],
+    isNew: true,
+    badgeText: 'P',
+  },
+  {
+    id: 'ppt-notes-extractor',
+    title: 'Presentation Handout & Notes Builder',
+    description:
+      'Convert presentation slide outlines and speaker points into a structured printable Word (.DOCX) or PDF study handout.',
+    hub: 'powerpoint',
+    hubLabel: 'PowerPoint',
+    subcategories: ['powerpoint', 'word', 'pdf'],
+    icon: Presentation,
+    tileColor: 'coral',
+    engineTag: 'Handout Engine · Local',
+    formats: ['PPTX', 'DOCX', 'PDF'],
+    isNew: true,
+    badgeText: 'P',
+  },
+
+  // ================= 8. EXTRA IMAGE PROBLEM SOLVERS =================
+  {
+    id: 'id-passport-photo-maker',
+    title: 'ID & Passport Photo Maker',
+    description:
+      'Create official 35×45mm or 2×2 inch biometric ID/CV photos with studio backgrounds and printable 4×6 multi-photo sheets.',
+    hub: 'image',
+    hubLabel: 'Image Studio',
+    subcategories: ['image', 'security'],
+    icon: UserSquare2,
+    tileColor: 'rose',
+    engineTag: 'Biometric Grid · 300 DPI',
+    formats: ['PNG', 'JPG'],
+    isNew: true,
+  },
+  {
+    id: 'image-watermark-privacy',
+    title: 'Image Watermark & Privacy Blur',
+    description:
+      'Protect photos with tiled copyright watermarks and pixelate or blackout sensitive ID numbers, faces, or confidential text.',
+    hub: 'image',
+    hubLabel: 'Image Studio',
+    subcategories: ['image', 'security'],
+    icon: ShieldAlert,
+    tileColor: 'amber',
+    engineTag: 'Canvas Redact · Local',
+    formats: ['PNG', 'JPG', 'WebP'],
+    isNew: true,
+  },
+
+  // ================= 9. SMART TEXT & FIXER STUDIO =================
+  {
+    id: 'smart-text-cleaner',
+    title: 'Smart Text & Arabic Tashkeel Cleaner',
+    description:
+      'Strip Arabic diacritics (Tashkeel/Kashida), remove duplicate lines, sort lists A–Z, and analyze word/character counts.',
+    hub: 'text',
+    hubLabel: 'Text & Fixer',
+    subcategories: ['text', 'word'],
+    icon: AlignLeft,
+    tileColor: 'violet',
+    engineTag: 'NLP Regex · Local',
+    formats: ['TXT', 'MD', 'DOCX'],
+    isNew: true,
+  },
+  {
+    id: 'data-extractor-studio',
+    title: 'Emails & Phones Extractor',
+    description:
+      'Automatically extract all email addresses and phone numbers from messy documents, logs, or raw text into a clean list.',
+    hub: 'text',
+    hubLabel: 'Text & Fixer',
+    subcategories: ['text', 'excel', 'convert'],
+    icon: AtSign,
+    tileColor: 'cyan',
+    engineTag: 'Pattern Miner · Local',
+    formats: ['TXT', 'CSV'],
     isNew: true,
   },
 ];

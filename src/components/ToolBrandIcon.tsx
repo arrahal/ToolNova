@@ -510,7 +510,156 @@ export const ToolBrandIcon: React.FC<{
           </svg>
         );
 
-      // 25. SPEECH TO TEXT — Studio Condenser Microphone
+      // 25. WORD FORMAT DOCTOR — Document + magic sparkle wand
+      case 'word-format-doctor':
+        return (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.0"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={svgClass}
+          >
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
+            <path d="M8.5 11h5" />
+            <path d="M8.5 15h7" />
+            <path d="m18 2 1.2 2.8L22 6l-2.8 1.2L18 10l-1.2-2.8L14 6l2.8-1.2L18 2Z" />
+          </svg>
+        );
+
+      // 26. MERGE WORD DOCS — Stacked Word documents joining
+      case 'merge-word-docs':
+        return (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.0"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={svgClass}
+          >
+            <rect x="4" y="3" width="11" height="14" rx="2" />
+            <path d="M9 21h9a2 2 0 0 0 2-2V8" />
+            <line x1="7.5" y1="8" x2="11.5" y2="8" />
+            <line x1="7.5" y1="11.5" x2="11.5" y2="11.5" />
+          </svg>
+        );
+
+      // 27. EXCEL DUPLICATE CLEANER — Spreadsheet grid with checkmark filter
+      case 'excel-duplicate-cleaner':
+      case 'excel-csv-converter':
+        return (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.0"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={svgClass}
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2.5" />
+            <line x1="3" y1="9" x2="21" y2="9" />
+            <line x1="3" y1="15" x2="21" y2="15" />
+            <line x1="9" y1="3" x2="9" y2="21" />
+          </svg>
+        );
+
+      // 28. POWERPOINT SLIDE GENERATOR & HANDOUT BUILDER — Widescreen presentation board
+      case 'ppt-slide-generator':
+      case 'ppt-notes-extractor':
+        return (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.0"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={svgClass}
+          >
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <line x1="8" y1="21" x2="16" y2="21" />
+            <line x1="12" y1="17" x2="12" y2="21" />
+            <path d="M7 8h4" />
+            <path d="M7 12h8" />
+          </svg>
+        );
+
+      // 29. ID & PASSPORT PHOTO MAKER — Biometric portrait frame with crop guides
+      case 'id-passport-photo-maker':
+        return (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.0"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={svgClass}
+          >
+            <rect x="4" y="3" width="16" height="18" rx="2.5" />
+            <circle cx="12" cy="10" r="3" />
+            <path d="M7.5 18c1-2.3 2.6-3.5 4.5-3.5s3.5 1.2 4.5 3.5" />
+          </svg>
+        );
+
+      // 30. IMAGE WATERMARK & PRIVACY BLUR — Shield over image frame
+      case 'image-watermark-privacy':
+        return (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.0"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={svgClass}
+          >
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            <path d="m9 12 2 2 4-4" />
+          </svg>
+        );
+
+      // 31. SMART TEXT CLEANER — Clean aligned typography bars
+      case 'smart-text-cleaner':
+        return (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.1"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={svgClass}
+          >
+            <line x1="4" y1="6" x2="20" y2="6" />
+            <line x1="4" y1="12" x2="16" y2="12" />
+            <line x1="4" y1="18" x2="18" y2="18" />
+          </svg>
+        );
+
+      // 32. EMAILS & PHONES EXTRACTOR — @ symbol radar
+      case 'data-extractor-studio':
+        return (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.0"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={svgClass}
+          >
+            <circle cx="12" cy="12" r="4" />
+            <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+          </svg>
+        );
+
+      // 33. SPEECH TO TEXT — Studio Condenser Microphone
       case 'speech-to-text':
       default:
         return (

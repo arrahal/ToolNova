@@ -37,6 +37,28 @@ import {
   renderPdfPageToCanvas,
   encodeFramesToAnimatedGif,
 } from '../utils/pdfAndGifEngine';
+import {
+  WordDoctorOptions,
+  WordMergeFileItem,
+  extractTextFromDocxOrTextFile,
+  cleanAndRepairWordText,
+  exportStructuredWordDocx,
+  mergeMultipleWordDocumentsToDocx,
+  ExcelCleanerOptions,
+  SpreadsheetGridData,
+  SAMPLE_DIRTY_EXCEL_DATA,
+  cleanSpreadsheetGrid,
+  parseUploadedExcelOrCsv,
+  parseCsvOrJsonToGrid,
+  exportGridToStyledExcelBytes,
+  exportGridToPdfBytes,
+  SAMPLE_PRESENTATION_OUTLINE,
+  parseOutlineToSlides,
+  generatePptxFromOutline,
+  renderPassportIdPhotoSheet,
+  renderImageWatermarkAndPrivacyStudio,
+  processSmartTextProblemSolver,
+} from '../utils/officeAndTextSuites';
 
 interface ToolWorkspaceModalProps {
   tool: ToolItem | null;
@@ -179,6 +201,80 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   ]);
   const [isListeningMic, setIsListeningMic] = useState(false);
 
+  // ---------------- WORD, EXCEL, POWERPOINT, TEXT & NEW IMAGE STATES ----------------
+  const [wordRawInput, setWordRawInput] = useState<string>(
+    `# EXECUTIVE PROJECT REPORT\nThis document was copied   from a multi-column PDF where lines were accidentally\nbroken in the middle of sentences   and extra spaces appeared.\n\n# الملخص التنفيذي للمشروع\nتم نسخ هذا النص من ملف PDF   حيث توجد مسافات زائدة   حول علامات الترقيم ، مثل الفاصلة والمنقوطة ؛ وسيقوم مصلح Word بإعادة ترتيب الفقرات وتصدير ملف DOCX احترافي.`
+  );
+  const [wordDocOpts, setWordDocOpts] = useState<WordDoctorOptions>({
+    fixBrokenLines: true,
+    normalizeSpaces: true,
+    fixArabicPunctuation: true,
+    autoDetectHeadings: true,
+    fontFamily: 'Cairo',
+    lineSpacing: 1.5,
+  });
+  const [wordMergeQueue, setWordMergeQueue] = useState<WordMergeFileItem[]>([
+    {
+      id: 'w-1',
+      name: 'Chapter_01_Introduction.docx',
+      text: 'This is the first Word document section covering project objectives, scope, and quality control methodology.',
+    },
+    {
+      id: 'w-2',
+      name: 'Chapter_02_Lab_Results.docx',
+      text: 'This is the second Word document section detailing physicochemical parameters (pH, density, conductivity) and QHSE compliance.',
+    },
+  ]);
+  const [wordMergePageBreaks, setWordMergePageBreaks] = useState(true);
+  const [wordMergeAddToc, setWordMergeAddToc] = useState(true);
+
+  // Excel Studio States
+  const [excelRawGrid, setExcelRawGrid] = useState<SpreadsheetGridData>(SAMPLE_DIRTY_EXCEL_DATA);
+  const [excelCleanOpts, setExcelCleanOpts] = useState<ExcelCleanerOptions>({
+    removeDuplicateRows: true,
+    trimWhitespace: true,
+    removeEmptyRows: true,
+    standardizeTextCase: 'title',
+    highlightHeaderColor: '10B981',
+  });
+  const [csvOrJsonText, setCsvOrJsonText] = useState<string>(
+    `Full Name,Department,City,Score\nArrahal Lahcen,Quality Control,Marrakech,98\nSara Benali,R&D Chemical Lab,Casablanca,94\nYoussef Amrani,Process Engineering,Rabat,91`
+  );
+  const [excelExportFormat, setExcelExportFormat] = useState<'xlsx' | 'csv' | 'pdf'>('xlsx');
+
+  // PowerPoint Studio States
+  const [pptDeckTitle, setPptDeckTitle] = useState('Industrial Quality & Process Control');
+  const [pptOutlineText, setPptOutlineText] = useState(SAMPLE_PRESENTATION_OUTLINE);
+  const [pptColorTheme, setPptColorTheme] = useState<'crimson-exec' | 'navy-corporate' | 'minimal-light'>('crimson-exec');
+  const [pptHandoutFormat, setPptHandoutFormat] = useState<'docx' | 'pdf'>('docx');
+
+  // Extra Image Problem-Solver States (ID Photo Maker & Watermark/Privacy Blur)
+  const [idPhotoSize, setIdPhotoSize] = useState<'35x45mm' | '2x2inch' | '30x40mm'>('35x45mm');
+  const [idPhotoBackdrop, setIdPhotoBackdrop] = useState<'#FFFFFF' | '#DBEAFE' | '#F1F5F9' | '#FEE2E2'>('#DBEAFE');
+  const [idPhotoLayout, setIdPhotoLayout] = useState<'single' | 'sheet-4' | 'sheet-8'>('sheet-4');
+  const [idPhotoCutGuides, setIdPhotoCutGuides] = useState(true);
+
+  const [imgWatermarkText, setImgWatermarkText] = useState('© TOOLNOVA PROTECTED');
+  const [imgWatermarkPattern, setImgWatermarkPattern] = useState<'tiled-diagonal' | 'center-badge' | 'bottom-corner'>('tiled-diagonal');
+  const [imgWatermarkOpacity, setImgWatermarkOpacity] = useState(0.32);
+  const [imgPrivacyRedact, setImgPrivacyRedact] = useState(true);
+  const [imgRedactY, setImgRedactY] = useState(65);
+  const [imgRedactHeight, setImgRedactHeight] = useState(14);
+  const [imgRedactMode, setImgRedactMode] = useState<'pixelate' | 'blackout'>('pixelate');
+
+  // Text & Fixer Studio States
+  const [smartTextInput, setSmartTextInput] = useState<string>(
+    `بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ — مَرْحَباً بِكُمْ فِي مَنْصَّةِ ToolNova لِمُعَالَجَةِ الْمَلَفَّاتِ.\nContact Lead: arrahallahcen17@gmail.com | Tel: +212 618 74 07 71\nSupport Team: support@toolnova.io | Office: +212 524 88 99 00\nContact Lead: arrahallahcen17@gmail.com | Tel: +212 618 74 07 71`
+  );
+  const [smartTextMode, setSmartTextMode] = useState<
+    | 'clean-all'
+    | 'remove-duplicate-lines'
+    | 'extract-emails-phones'
+    | 'remove-arabic-tashkeel'
+    | 'sort-lines-az'
+    | 'number-lines'
+  >('remove-arabic-tashkeel');
+
   // Initialize default sample media when tool opens
   useEffect(() => {
     if (!tool) return;
@@ -303,6 +399,12 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
         uploadedVideoElRef.current.pause();
         uploadedVideoElRef.current.removeAttribute('src');
       }
+    } else if (tool.hub === 'text') {
+      setSmartTextMode(
+        tool.id === 'data-extractor-studio'
+          ? 'extract-emails-phones'
+          : 'remove-arabic-tashkeel'
+      );
     }
 
     return () => {
@@ -544,6 +646,23 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
           ctx.drawImage(src, col * (w + gap), row * (h + gap), w, h);
         }
       }
+    } else if (tool.id === 'id-passport-photo-maker') {
+      renderPassportIdPhotoSheet(canvas, sourceImages[0], {
+        sizePreset: idPhotoSize,
+        backdropColor: idPhotoBackdrop,
+        layoutMode: idPhotoLayout,
+        addCutGuides: idPhotoCutGuides,
+      });
+    } else if (tool.id === 'image-watermark-privacy') {
+      renderImageWatermarkAndPrivacyStudio(canvas, sourceImages[0], {
+        watermarkText: imgWatermarkText,
+        watermarkPattern: imgWatermarkPattern,
+        watermarkOpacity: imgWatermarkOpacity,
+        enablePrivacyRedaction: imgPrivacyRedact,
+        redactionYPercent: imgRedactY,
+        redactionHeightPercent: imgRedactHeight,
+        redactionMode: imgRedactMode,
+      });
     } else {
       const src = sourceImages[0];
       const targetW = Math.max(64, Math.min(2400, imgWidth));
@@ -619,6 +738,17 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     cropOffsetY,
     exportFormat,
     exportQuality,
+    idPhotoSize,
+    idPhotoBackdrop,
+    idPhotoLayout,
+    idPhotoCutGuides,
+    imgWatermarkText,
+    imgWatermarkPattern,
+    imgWatermarkOpacity,
+    imgPrivacyRedact,
+    imgRedactY,
+    imgRedactHeight,
+    imgRedactMode,
   ]);
 
   // Render Audio Waveform Canvas
@@ -1172,6 +1302,266 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
       ? 'image/*,.pdf'
       : '.pdf';
 
+  // ---------------- WORD, EXCEL, POWERPOINT, AND TEXT HANDLERS ----------------
+  const wordDoctorPreview = cleanAndRepairWordText(wordRawInput, wordDocOpts);
+
+  const excelCleanedResult =
+    tool.id === 'excel-csv-converter'
+      ? cleanSpreadsheetGrid(parseCsvOrJsonToGrid(csvOrJsonText), {
+          removeDuplicateRows: false,
+          trimWhitespace: true,
+          removeEmptyRows: true,
+          standardizeTextCase: 'none',
+          highlightHeaderColor: '10B981',
+        })
+      : cleanSpreadsheetGrid(excelRawGrid, excelCleanOpts);
+
+  const pptSlidesPreview = parseOutlineToSlides(pptOutlineText);
+  const smartTextResult = processSmartTextProblemSolver(smartTextInput, {
+    mode: smartTextMode,
+  });
+
+  const handleUploadWordFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    if (tool.id === 'word-format-doctor') {
+      const text = await extractTextFromDocxOrTextFile(files[0]);
+      setWordRawInput(text);
+    } else if (tool.id === 'merge-word-docs') {
+      const added: WordMergeFileItem[] = [];
+      for (const f of Array.from(files)) {
+        const text = await extractTextFromDocxOrTextFile(f);
+        added.push({
+          id: `w-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: f.name,
+          text,
+        });
+      }
+      setWordMergeQueue((prev) => [...prev, ...added]);
+    }
+    e.target.value = '';
+  };
+
+  const handleDownloadWordOutput = async () => {
+    if (tool.id === 'word-format-doctor') {
+      const bytes = await exportStructuredWordDocx(
+        'ToolNova Repaired Word Document',
+        wordDoctorPreview.cleanedText,
+        wordDocOpts
+      );
+      const blob = new Blob([bytes], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ToolNova_Repaired_Document.docx';
+      a.click();
+      URL.revokeObjectURL(url);
+      onRecordHistory?.(
+        tool.title,
+        `Repaired ${wordDoctorPreview.stats.brokenLinesMerged} broken lines & exported .DOCX`
+      );
+    } else if (tool.id === 'merge-word-docs') {
+      const bytes = await mergeMultipleWordDocumentsToDocx(
+        wordMergeQueue,
+        wordMergePageBreaks,
+        wordMergeAddToc
+      );
+      const blob = new Blob([bytes], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ToolNova_Merged_${wordMergeQueue.length}_Docs.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      onRecordHistory?.(
+        tool.title,
+        `Merged ${wordMergeQueue.length} Word documents into Master .DOCX`
+      );
+    }
+  };
+
+  const handleUploadExcelOrCsvFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (tool.id === 'excel-csv-converter') {
+      const txt = await file.text();
+      setCsvOrJsonText(txt);
+    } else {
+      const parsed = await parseUploadedExcelOrCsv(file);
+      setExcelRawGrid(parsed);
+    }
+    e.target.value = '';
+  };
+
+  const handleDownloadExcelOutput = async () => {
+    const grid = excelCleanedResult.cleaned;
+    if (excelExportFormat === 'pdf') {
+      const pdfBytes = await exportGridToPdfBytes(grid, 'ToolNova Excel Data Report');
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ToolNova_Spreadsheet_Report.pdf';
+      a.click();
+      URL.revokeObjectURL(url);
+      onRecordHistory?.(tool.title, `Exported ${grid.rows.length} rows to Landscape PDF`);
+      return;
+    }
+
+    if (excelExportFormat === 'csv') {
+      const csvLines = [
+        grid.headers.join(','),
+        ...grid.rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')),
+      ].join('\n');
+      const blob = new Blob(['\uFEFF' + csvLines], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ToolNova_Cleaned_Data.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+      onRecordHistory?.(tool.title, `Exported UTF-8 CSV (${grid.rows.length} rows)`);
+      return;
+    }
+
+    const xlsxBytes = await exportGridToStyledExcelBytes(
+      grid,
+      'Cleaned Data',
+      excelCleanOpts.highlightHeaderColor
+    );
+    const blob = new Blob([xlsxBytes], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ToolNova_Cleaned_Spreadsheet.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+    onRecordHistory?.(
+      tool.title,
+      `Exported styled .XLSX (${grid.rows.length} clean rows, ${excelCleanedResult.duplicatesRemoved} duplicates removed)`
+    );
+  };
+
+  const handleDownloadPowerPointOutput = async () => {
+    if (tool.id === 'ppt-slide-generator') {
+      const bytes = await generatePptxFromOutline(
+        pptDeckTitle,
+        pptSlidesPreview,
+        pptColorTheme
+      );
+      const blob = new Blob([bytes], {
+        type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${pptDeckTitle.replace(/\s+/g, '_')}.pptx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      onRecordHistory?.(
+        tool.title,
+        `Generated 16:9 PowerPoint (.PPTX) with ${pptSlidesPreview.length + 1} slides`
+      );
+    } else {
+      // ppt-notes-extractor -> export handout as DOCX or PDF
+      const handoutText = pptSlidesPreview
+        .map(
+          (s, idx) =>
+            `# Slide ${idx + 1}: ${s.title}\n` + s.bullets.map((b) => `• ${b}`).join('\n')
+        )
+        .join('\n\n');
+
+      if (pptHandoutFormat === 'docx') {
+        const bytes = await exportStructuredWordDocx(
+          `${pptDeckTitle} — Study Handout & Speaker Notes`,
+          handoutText,
+          {
+            fixBrokenLines: false,
+            normalizeSpaces: true,
+            fixArabicPunctuation: true,
+            autoDetectHeadings: true,
+            fontFamily: 'Cairo',
+            lineSpacing: 1.5,
+          }
+        );
+        const blob = new Blob([bytes], {
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${pptDeckTitle.replace(/\s+/g, '_')}_Handout.docx`;
+        a.click();
+        URL.revokeObjectURL(url);
+        onRecordHistory?.(tool.title, `Exported presentation handout as Word (.DOCX)`);
+      } else {
+        const grid: SpreadsheetGridData = {
+          headers: ['Slide #', 'Slide Title', 'Key Speaker Points & Summary'],
+          rows: pptSlidesPreview.map((s, i) => [
+            `Slide ${i + 1}`,
+            s.title,
+            s.bullets.join(' | '),
+          ]),
+        };
+        const pdfBytes = await exportGridToPdfBytes(grid, `${pptDeckTitle} — Handout`);
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${pptDeckTitle.replace(/\s+/g, '_')}_Handout.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+        onRecordHistory?.(tool.title, `Exported presentation handout as PDF`);
+      }
+    }
+  };
+
+  const handleDownloadSmartTextOutput = (ext: 'txt' | 'docx') => {
+    if (ext === 'docx') {
+      exportStructuredWordDocx('ToolNova Processed Text', smartTextResult.outputText, {
+        fixBrokenLines: false,
+        normalizeSpaces: false,
+        fixArabicPunctuation: false,
+        autoDetectHeadings: true,
+        fontFamily: 'Cairo',
+        lineSpacing: 1.5,
+      }).then((bytes) => {
+        const blob = new Blob([bytes], {
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `ToolNova_${tool.id}.docx`;
+        a.click();
+        URL.revokeObjectURL(url);
+        onRecordHistory?.(tool.title, `Exported processed text to Word (.DOCX)`);
+      });
+      return;
+    }
+
+    const blob = new Blob(['\uFEFF' + smartTextResult.outputText], {
+      type: 'text/plain;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ToolNova_${tool.id}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    onRecordHistory?.(
+      tool.title,
+      `Exported processed UTF-8 text (${smartTextResult.wordCount} words)`
+    );
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 overflow-y-auto">
       <video ref={uploadedVideoElRef} className="hidden" playsInline muted loop />
@@ -1613,6 +2003,283 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* WORD STUDIO STAGE */}
+            {tool.hub === 'word' && (
+              <div className="flex flex-col h-full gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    {tool.id === 'word-format-doctor'
+                      ? 'إصلاح وتنسيق نصوص ومستندات Word (.DOCX)'
+                      : `دمج ملفات Word (${wordMergeQueue.length} ملفات في القائمة)`}
+                  </span>
+                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition-colors">
+                    <Upload className="w-3.5 h-3.5" />
+                    {tool.id === 'word-format-doctor'
+                      ? 'رفع ملف Word (.DOCX) أو نص'
+                      : '+ إضافة ملفات Word (.DOCX)'}
+                    <input
+                      type="file"
+                      accept=".docx,.txt,.md"
+                      multiple={tool.id === 'merge-word-docs'}
+                      onChange={handleUploadWordFiles}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {tool.id === 'word-format-doctor' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-[340px]">
+                    <div className="flex flex-col rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+                      <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                        النص الأصلي (قبل الإصلاح / منسوخ من PDF)
+                      </div>
+                      <textarea
+                        value={wordRawInput}
+                        onChange={(e) => setWordRawInput(e.target.value)}
+                        className="flex-1 p-3 text-xs bg-transparent text-slate-800 dark:text-slate-200 focus:outline-none resize-none leading-relaxed"
+                        placeholder="الصق النص المتقطع أو ارفع ملف DOCX..."
+                      />
+                    </div>
+                    <div className="flex flex-col rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/20 dark:bg-slate-900 overflow-hidden">
+                      <div className="px-3 py-2 bg-blue-600 text-white text-[11px] font-bold flex items-center justify-between">
+                        <span>معاينة مستند Word بعد الإصلاح التلقائي</span>
+                        <span className="font-mono text-[10px]">
+                          {wordDoctorPreview.stats.cleanedWords} كلمة
+                        </span>
+                      </div>
+                      <div className="flex-1 p-3.5 text-xs text-slate-900 dark:text-slate-100 whitespace-pre-wrap overflow-y-auto max-h-[300px] leading-relaxed">
+                        {wordDoctorPreview.cleanedText}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 min-h-[340px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3 overflow-y-auto max-h-[350px]">
+                    {wordMergeQueue.map((item, idx) => (
+                      <div
+                        key={item.id}
+                        className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-md bg-blue-600 text-white text-xs font-bold flex items-center justify-center">
+                              {idx + 1}
+                            </span>
+                            <span className="text-xs font-bold text-slate-900 dark:text-white">
+                              {item.name}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={wordMergeQueue.length <= 1}
+                            onClick={() =>
+                              setWordMergeQueue((prev) => prev.filter((_, i) => i !== idx))
+                            }
+                            className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <textarea
+                          rows={2}
+                          value={item.text}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setWordMergeQueue((prev) =>
+                              prev.map((w, i) => (i === idx ? { ...w, text: val } : w))
+                            );
+                          }}
+                          className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* EXCEL & DATA STAGE */}
+            {tool.hub === 'excel' && (
+              <div className="flex flex-col h-full gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    {tool.id === 'excel-duplicate-cleaner'
+                      ? `جدول Excel بعد التنظيف (${excelCleanedResult.cleaned.rows.length} صفوف صافية · تم حذف ${excelCleanedResult.duplicatesRemoved} مكرر)`
+                      : 'تحويل بيانات CSV / JSON إلى جدول Excel أو PDF'}
+                  </span>
+                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors">
+                    <Upload className="w-3.5 h-3.5" />
+                    رفع ملف Excel (.XLSX / .CSV / .JSON)
+                    <input
+                      type="file"
+                      accept=".xlsx,.csv,.json,.txt"
+                      onChange={handleUploadExcelOrCsvFile}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {tool.id === 'excel-csv-converter' && (
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+                    <div className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                      بيانات CSV أو JSON الخام (عدّل أو الصق هنا)
+                    </div>
+                    <textarea
+                      rows={4}
+                      value={csvOrJsonText}
+                      onChange={(e) => setCsvOrJsonText(e.target.value)}
+                      className="w-full p-2.5 text-xs font-mono bg-transparent text-slate-800 dark:text-slate-200 focus:outline-none"
+                    />
+                  </div>
+                )}
+
+                <div className="flex-1 min-h-[250px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-auto max-h-[340px]">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-emerald-600 text-white">
+                        <th className="py-2.5 px-3 font-bold border-r border-emerald-500 w-10 text-center">
+                          #
+                        </th>
+                        {excelCleanedResult.cleaned.headers.map((h, i) => (
+                          <th
+                            key={i}
+                            className="py-2.5 px-3 font-bold border-r border-emerald-500 last:border-r-0"
+                          >
+                            {h || `Col ${i + 1}`}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {excelCleanedResult.cleaned.rows.map((row, rIdx) => (
+                        <tr
+                          key={rIdx}
+                          className="border-b border-slate-200 dark:border-slate-800 even:bg-slate-50 dark:even:bg-slate-800/50"
+                        >
+                          <td className="py-2 px-3 font-mono text-[11px] text-slate-400 text-center border-r border-slate-200 dark:border-slate-800">
+                            {rIdx + 1}
+                          </td>
+                          {row.map((cell, cIdx) => (
+                            <td
+                              key={cIdx}
+                              className="py-2 px-3 text-slate-800 dark:text-slate-200 border-r border-slate-100 dark:border-slate-800 last:border-r-0"
+                            >
+                              {cell}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* POWERPOINT STUDIO STAGE */}
+            {tool.hub === 'powerpoint' && (
+              <div className="flex flex-col h-full gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    معاينة شرائح العرض التقديمي ({pptSlidesPreview.length} شرائح محتوى + شريحة غلاف)
+                  </span>
+                  <span className="px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 text-[11px] font-bold">
+                    16:9 Widescreen PPTX
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-[340px]">
+                  <div className="flex flex-col rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+                    <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                      مخطط الشرائح (استخدم # لعنوان كل شريحة و - للنقاط)
+                    </div>
+                    <textarea
+                      value={pptOutlineText}
+                      onChange={(e) => setPptOutlineText(e.target.value)}
+                      className="flex-1 p-3 text-xs font-mono bg-transparent text-slate-800 dark:text-slate-200 focus:outline-none resize-none leading-relaxed"
+                    />
+                  </div>
+
+                  <div className="space-y-2.5 overflow-y-auto max-h-[340px] pr-1">
+                    {pptSlidesPreview.map((slide, sIdx) => (
+                      <div
+                        key={sIdx}
+                        className={`p-4 rounded-xl border shadow-xs ${
+                          pptColorTheme === 'navy-corporate'
+                            ? 'bg-slate-900 text-white border-slate-700'
+                            : pptColorTheme === 'minimal-light'
+                            ? 'bg-slate-50 text-slate-900 border-blue-200'
+                            : 'bg-white text-slate-900 border-rose-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-[#e5322d] text-white">
+                            Slide {sIdx + 1}
+                          </span>
+                          <span className="text-[10px] opacity-60 font-mono">16:9</span>
+                        </div>
+                        <h4 className="text-xs font-extrabold mb-2">{slide.title}</h4>
+                        <ul className="space-y-1 text-[11px] opacity-90 list-disc list-inside">
+                          {slide.bullets.map((b, bIdx) => (
+                            <li key={bIdx}>{b}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SMART TEXT & FIXER STAGE */}
+            {tool.hub === 'text' && (
+              <div className="flex flex-col h-full gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    معالجة النصوص الذكية واستخراج البيانات
+                  </span>
+                  <div className="flex items-center gap-3 text-[11px] font-mono text-slate-600 dark:text-slate-400">
+                    <span>Words: {smartTextResult.wordCount}</span>
+                    <span>·</span>
+                    <span>Chars: {smartTextResult.charCount}</span>
+                    <span>·</span>
+                    <span>Lines: {smartTextResult.lineCount}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-[340px]">
+                  <div className="flex flex-col rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+                    <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                      النص المدخل (Input Text)
+                    </div>
+                    <textarea
+                      value={smartTextInput}
+                      onChange={(e) => setSmartTextInput(e.target.value)}
+                      className="flex-1 p-3 text-xs bg-transparent text-slate-800 dark:text-slate-200 focus:outline-none resize-none leading-relaxed"
+                    />
+                  </div>
+
+                  <div className="flex flex-col rounded-xl border border-violet-200 dark:border-violet-900/60 bg-violet-50/20 dark:bg-slate-900 overflow-hidden">
+                    <div className="px-3 py-2 bg-violet-600 text-white text-[11px] font-bold flex items-center justify-between">
+                      <span>النتيجة الفورية (Processed Output)</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(smartTextResult.outputText);
+                        }}
+                        className="px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 text-[10px] font-bold cursor-pointer"
+                      >
+                        نسخ النص
+                      </button>
+                    </div>
+                    <textarea
+                      readOnly
+                      value={smartTextResult.outputText}
+                      className="flex-1 p-3 text-xs font-mono bg-transparent text-slate-900 dark:text-slate-100 focus:outline-none resize-none leading-relaxed"
+                    />
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -2852,6 +3519,201 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                     </div>
                   )}
 
+                  {tool.id === 'id-passport-photo-maker' && (
+                    <div className="space-y-3.5 p-3.5 rounded-xl bg-rose-50/60 dark:bg-rose-950/25 border border-rose-200 dark:border-rose-800/60">
+                      <div className="text-xs font-bold text-slate-900 dark:text-white">
+                        🪪 إعدادات صور البطاقة وجواز السفر والـ CV
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                          مقاس الصورة الرسمية (Official Biometric Size)
+                        </label>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {(
+                            [
+                              { id: '35x45mm', label: '35×45 mm (EU/MA)' },
+                              { id: '2x2inch', label: '2×2 inch (US)' },
+                              { id: '30x40mm', label: '30×40 mm (CV)' },
+                            ] as const
+                          ).map((sz) => (
+                            <button
+                              key={sz.id}
+                              type="button"
+                              onClick={() => setIdPhotoSize(sz.id)}
+                              className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border cursor-pointer ${
+                                idPhotoSize === sz.id
+                                  ? 'bg-rose-600 text-white border-rose-600'
+                                  : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                              }`}
+                            >
+                              {sz.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                          تخطيط ورقة الطباعة (Sheet Layout)
+                        </label>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {(
+                            [
+                              { id: 'single', label: 'صورة فردية' },
+                              { id: 'sheet-4', label: 'ورقة 4 صور' },
+                              { id: 'sheet-8', label: 'ورقة 8 صور' },
+                            ] as const
+                          ).map((lay) => (
+                            <button
+                              key={lay.id}
+                              type="button"
+                              onClick={() => setIdPhotoLayout(lay.id)}
+                              className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border cursor-pointer ${
+                                idPhotoLayout === lay.id
+                                  ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900'
+                                  : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                              }`}
+                            >
+                              {lay.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                          لون الخلفية الرسمية
+                        </label>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {(
+                            [
+                              { hex: '#FFFFFF', label: 'أبيض' },
+                              { hex: '#DBEAFE', label: 'أزرق فاتح' },
+                              { hex: '#F1F5F9', label: 'رمادي' },
+                              { hex: '#FEE2E2', label: 'أحمر فاتح' },
+                            ] as const
+                          ).map((bg) => (
+                            <button
+                              key={bg.hex}
+                              type="button"
+                              onClick={() => setIdPhotoBackdrop(bg.hex)}
+                              className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border cursor-pointer ${
+                                idPhotoBackdrop === bg.hex
+                                  ? 'ring-2 ring-rose-600 border-rose-600 font-extrabold'
+                                  : 'border-slate-300 dark:border-slate-700'
+                              }`}
+                              style={{ backgroundColor: bg.hex, color: '#0f172a' }}
+                            >
+                              {bg.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={idPhotoCutGuides}
+                          onChange={(e) => setIdPhotoCutGuides(e.target.checked)}
+                          className="accent-rose-600"
+                        />
+                        <span>إظهار خطوط القص المقطعة للطباعة (Print Cut Guides)</span>
+                      </label>
+                    </div>
+                  )}
+
+                  {tool.id === 'image-watermark-privacy' && (
+                    <div className="space-y-3.5 p-3.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-800/60">
+                      <div className="text-xs font-bold text-slate-900 dark:text-white">
+                        🛡️ ختم الصور وإخفاء البيانات الحساسة
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          نص العلامة المائية (Watermark Text)
+                        </label>
+                        <input
+                          type="text"
+                          value={imgWatermarkText}
+                          onChange={(e) => setImgWatermarkText(e.target.value)}
+                          className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {(
+                          [
+                            { id: 'tiled-diagonal', label: 'متكرر قطري' },
+                            { id: 'center-badge', label: 'وسط الصورة' },
+                            { id: 'bottom-corner', label: 'أسفل اليمين' },
+                          ] as const
+                        ).map((pat) => (
+                          <button
+                            key={pat.id}
+                            type="button"
+                            onClick={() => setImgWatermarkPattern(pat.id)}
+                            className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border cursor-pointer ${
+                              imgWatermarkPattern === pat.id
+                                ? 'bg-amber-600 text-white border-amber-600'
+                                : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700'
+                            }`}
+                          >
+                            {pat.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <label className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer pt-1">
+                        <input
+                          type="checkbox"
+                          checked={imgPrivacyRedact}
+                          onChange={(e) => setImgPrivacyRedact(e.target.checked)}
+                          className="accent-amber-600"
+                        />
+                        <span>تفعيل شريط إخفاء المعلومات السرية (Privacy Redaction Bar)</span>
+                      </label>
+
+                      {imgPrivacyRedact && (
+                        <div className="space-y-2.5 pt-1">
+                          <div className="grid grid-cols-2 gap-2">
+                            {(
+                              [
+                                { id: 'pixelate', label: 'تمويه (Pixelate Blur)' },
+                                { id: 'blackout', label: 'طمس أسود (Blackout)' },
+                              ] as const
+                            ).map((m) => (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => setImgRedactMode(m.id)}
+                                className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border cursor-pointer ${
+                                  imgRedactMode === m.id
+                                    ? 'bg-slate-900 text-white border-slate-900'
+                                    : 'bg-white dark:bg-slate-800 border-slate-300'
+                                }`}
+                              >
+                                {m.label}
+                              </button>
+                            ))}
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[11px] mb-1">
+                              <span>موضع شريط الإخفاء عمودياً (Y Position)</span>
+                              <span className="font-mono">{imgRedactY}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="5"
+                              max="90"
+                              value={imgRedactY}
+                              onChange={(e) => setImgRedactY(Number(e.target.value))}
+                              className="w-full accent-amber-600"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-3">
                     <div>
                       <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
@@ -3126,6 +3988,394 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                   )}
                 </div>
               )}
+
+              {/* WORD STUDIO CONTROLS */}
+              {tool.hub === 'word' && (
+                <div className="space-y-4">
+                  {tool.id === 'word-format-doctor' ? (
+                    <div className="space-y-3">
+                      <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/60 text-xs space-y-1.5">
+                        <div className="font-bold text-blue-900 dark:text-blue-200">
+                          إحصائيات الإصلاح التلقائي:
+                        </div>
+                        <div className="flex justify-between text-[11px] text-slate-700 dark:text-slate-300">
+                          <span>دمج الأسطر المكسورة:</span>
+                          <strong className="font-mono">{wordDoctorPreview.stats.brokenLinesMerged}</strong>
+                        </div>
+                        <div className="flex justify-between text-[11px] text-slate-700 dark:text-slate-300">
+                          <span>تنظيف المسافات الزائدة:</span>
+                          <strong className="font-mono">{wordDoctorPreview.stats.spacesFixed}</strong>
+                        </div>
+                        <div className="flex justify-between text-[11px] text-slate-700 dark:text-slate-300">
+                          <span>العناوين المكتشفة:</span>
+                          <strong className="font-mono">{wordDoctorPreview.stats.headingsDetected}</strong>
+                        </div>
+                      </div>
+
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={wordDocOpts.fixBrokenLines}
+                          onChange={(e) =>
+                            setWordDocOpts((p) => ({ ...p, fixBrokenLines: e.target.checked }))
+                          }
+                          className="accent-blue-600"
+                        />
+                        <span>إصلاح ودمج الأسطر المقطوعة بعد النسخ من PDF</span>
+                      </label>
+
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={wordDocOpts.normalizeSpaces}
+                          onChange={(e) =>
+                            setWordDocOpts((p) => ({ ...p, normalizeSpaces: e.target.checked }))
+                          }
+                          className="accent-blue-600"
+                        />
+                        <span>إزالة الفراغات والمسافات المزدوجة (Normalize Spaces)</span>
+                      </label>
+
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={wordDocOpts.fixArabicPunctuation}
+                          onChange={(e) =>
+                            setWordDocOpts((p) => ({
+                              ...p,
+                              fixArabicPunctuation: e.target.checked,
+                            }))
+                          }
+                          className="accent-blue-600"
+                        />
+                        <span>ضبط علامات الترقيم العربية والاتجاه (RTL Punctuation)</span>
+                      </label>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                          خط مستند Word المصدّر (DOCX Font Family)
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(['Cairo', 'Calibri', 'Arial'] as const).map((f) => (
+                            <button
+                              key={f}
+                              type="button"
+                              onClick={() => setWordDocOpts((p) => ({ ...p, fontFamily: f }))}
+                              className={`py-1.5 px-2 rounded-lg text-xs font-bold border cursor-pointer ${
+                                wordDocOpts.fontFamily === f
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                              }`}
+                            >
+                              {f}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={wordMergeAddToc}
+                          onChange={(e) => setWordMergeAddToc(e.target.checked)}
+                          className="accent-blue-600"
+                        />
+                        <span>إضافة صفحة فهرس المحتويات تلقائياً في بداية الملف</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={wordMergePageBreaks}
+                          onChange={(e) => setWordMergePageBreaks(e.target.checked)}
+                          className="accent-blue-600"
+                        />
+                        <span>إدراج فاصل صفحة (Page Break) بين كل مستند وآخر</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setWordMergeQueue((prev) => [
+                            ...prev,
+                            {
+                              id: `w-${Date.now()}`,
+                              name: `Chapter_0${prev.length + 1}_Appendix.docx`,
+                              text: 'Additional Word document section ready to be merged.',
+                            },
+                          ])
+                        }
+                        className="w-full py-2 px-3 rounded-xl border border-dashed border-blue-400 text-blue-600 dark:text-blue-400 text-xs font-bold hover:bg-blue-50/50 cursor-pointer"
+                      >
+                        + إضافة قسم جديد للتجربة
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* EXCEL & DATA CONTROLS */}
+              {tool.hub === 'excel' && (
+                <div className="space-y-4">
+                  {tool.id === 'excel-duplicate-cleaner' && (
+                    <div className="space-y-2.5">
+                      <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 text-xs space-y-1">
+                        <div className="font-bold text-emerald-900 dark:text-emerald-200">
+                          ملخص تنظيف الجدول:
+                        </div>
+                        <div className="flex justify-between text-[11px]">
+                          <span>الصفوف المكررة المحذوفة:</span>
+                          <strong className="font-mono text-emerald-700">
+                            {excelCleanedResult.duplicatesRemoved}
+                          </strong>
+                        </div>
+                        <div className="flex justify-between text-[11px]">
+                          <span>الصفوف الفارغة المحذوفة:</span>
+                          <strong className="font-mono text-emerald-700">
+                            {excelCleanedResult.emptyRowsRemoved}
+                          </strong>
+                        </div>
+                        <div className="flex justify-between text-[11px]">
+                          <span>الخلايا التي تم تنظيف مسافاتها:</span>
+                          <strong className="font-mono text-emerald-700">
+                            {excelCleanedResult.cellsTrimmed}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={excelCleanOpts.removeDuplicateRows}
+                          onChange={(e) =>
+                            setExcelCleanOpts((p) => ({
+                              ...p,
+                              removeDuplicateRows: e.target.checked,
+                            }))
+                          }
+                          className="accent-emerald-600"
+                        />
+                        <span>حذف الصفوف المكررة تلقائياً (Remove Duplicates)</span>
+                      </label>
+
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={excelCleanOpts.removeEmptyRows}
+                          onChange={(e) =>
+                            setExcelCleanOpts((p) => ({
+                              ...p,
+                              removeEmptyRows: e.target.checked,
+                            }))
+                          }
+                          className="accent-emerald-600"
+                        />
+                        <span>إزالة الصفوف الفارغة بالكامل (Remove Blank Rows)</span>
+                      </label>
+
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={excelCleanOpts.trimWhitespace}
+                          onChange={(e) =>
+                            setExcelCleanOpts((p) => ({
+                              ...p,
+                              trimWhitespace: e.target.checked,
+                            }))
+                          }
+                          className="accent-emerald-600"
+                        />
+                        <span>تنظيف المسافات المخفية في بداية ونهاية الخلايا</span>
+                      </label>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                          توحيد حالة الأحرف (Text Case Standardization)
+                        </label>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {(
+                            [
+                              { id: 'title', label: 'Title Case' },
+                              { id: 'upper', label: 'UPPER' },
+                              { id: 'lower', label: 'lower' },
+                              { id: 'none', label: 'Original' },
+                            ] as const
+                          ).map((c) => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() =>
+                                setExcelCleanOpts((p) => ({ ...p, standardizeTextCase: c.id }))
+                              }
+                              className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border cursor-pointer ${
+                                excelCleanOpts.standardizeTextCase === c.id
+                                  ? 'bg-emerald-600 text-white border-emerald-600'
+                                  : 'border-slate-300 dark:border-slate-700'
+                              }`}
+                            >
+                              {c.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                      صيغة تصدير الجدول (Export Format)
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(
+                        [
+                          { id: 'xlsx', label: 'Excel (.XLSX)' },
+                          { id: 'csv', label: 'UTF-8 (.CSV)' },
+                          { id: 'pdf', label: 'Report (.PDF)' },
+                        ] as const
+                      ).map((fmt) => (
+                        <button
+                          key={fmt.id}
+                          type="button"
+                          onClick={() => setExcelExportFormat(fmt.id)}
+                          className={`py-2 px-2 rounded-lg text-xs font-bold border cursor-pointer ${
+                            excelExportFormat === fmt.id
+                              ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900'
+                              : 'border-slate-300 dark:border-slate-700'
+                          }`}
+                        >
+                          {fmt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* POWERPOINT STUDIO CONTROLS */}
+              {tool.hub === 'powerpoint' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      عنوان العرض التقديمي الرئيسي (Presentation Title)
+                    </label>
+                    <input
+                      type="text"
+                      value={pptDeckTitle}
+                      onChange={(e) => setPptDeckTitle(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    />
+                  </div>
+
+                  {tool.id === 'ppt-slide-generator' ? (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                        السمة اللونية للشرائح (16:9 Slide Theme)
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(
+                          [
+                            { id: 'crimson-exec', label: 'أحمر تنفيذي' },
+                            { id: 'navy-corporate', label: 'كحلي رسمي' },
+                            { id: 'minimal-light', label: 'أبيض كلاسيكي' },
+                          ] as const
+                        ).map((th) => (
+                          <button
+                            key={th.id}
+                            type="button"
+                            onClick={() => setPptColorTheme(th.id)}
+                            className={`py-2 px-2 rounded-lg text-xs font-bold border cursor-pointer ${
+                              pptColorTheme === th.id
+                                ? 'bg-[#e5322d] text-white border-[#e5322d]'
+                                : 'border-slate-300 dark:border-slate-700'
+                            }`}
+                          >
+                            {th.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                        صيغة مذكرة الملخص والمراجعة (Handout Output Format)
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(
+                          [
+                            { id: 'docx', label: 'مذكرة Word (.DOCX)' },
+                            { id: 'pdf', label: 'جدول ملخص (.PDF)' },
+                          ] as const
+                        ).map((fmt) => (
+                          <button
+                            key={fmt.id}
+                            type="button"
+                            onClick={() => setPptHandoutFormat(fmt.id)}
+                            className={`py-2 px-3 rounded-lg text-xs font-bold border cursor-pointer ${
+                              pptHandoutFormat === fmt.id
+                                ? 'bg-[#e5322d] text-white border-[#e5322d]'
+                                : 'border-slate-300 dark:border-slate-700'
+                            }`}
+                          >
+                            {fmt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SMART TEXT & FIXER CONTROLS */}
+              {tool.hub === 'text' && (
+                <div className="space-y-3">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    اختر أداة معالجة النص أو استخراج البيانات:
+                  </label>
+                  <div className="grid grid-cols-1 gap-2">
+                    {(
+                      [
+                        {
+                          id: 'remove-arabic-tashkeel',
+                          label: 'إزالة التشكيل والحركات والـ كشيدة العربية',
+                        },
+                        {
+                          id: 'extract-emails-phones',
+                          label: 'استخراج جميع الإيميلات وأرقام الهواتف من النص',
+                        },
+                        {
+                          id: 'remove-duplicate-lines',
+                          label: 'حذف الأسطر المكررة في القوائم (Remove Duplicate Lines)',
+                        },
+                        {
+                          id: 'clean-all',
+                          label: 'تنظيف الفراغات والأسطر الفارغة الزائدة',
+                        },
+                        {
+                          id: 'sort-lines-az',
+                          label: 'ترتيب الأسطر أبجدياً (Sort A → Z)',
+                        },
+                        {
+                          id: 'number-lines',
+                          label: 'ترقيم الأسطر تلقائياً (1, 2, 3...)',
+                        },
+                      ] as const
+                    ).map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setSmartTextMode(m.id)}
+                        className={`text-start py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                          smartTextMode === m.id
+                            ? 'bg-violet-600 text-white border-violet-600'
+                            : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Bottom Primary Export CTA */}
@@ -3150,6 +4400,59 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                     ? `Merge ${pdfFiles.length} File(s) & Download (${pdfResult?.pageCount || 0} Pages)`
                     : `Download (${pdfResult?.fileName || 'Processed File'})`}
                 </button>
+              )}
+
+              {tool.hub === 'word' && (
+                <button
+                  onClick={handleDownloadWordOutput}
+                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  {tool.id === 'word-format-doctor'
+                    ? 'تنزيل مستند Word المصلح (.DOCX)'
+                    : `دمج وتنزيل ملف Word الموحد (${wordMergeQueue.length} أقسام .DOCX)`}
+                </button>
+              )}
+
+              {tool.hub === 'excel' && (
+                <button
+                  onClick={handleDownloadExcelOutput}
+                  className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  تنزيل الجدول بصيغة .{excelExportFormat.toUpperCase()} ({excelCleanedResult.cleaned.rows.length} صفوف)
+                </button>
+              )}
+
+              {tool.hub === 'powerpoint' && (
+                <button
+                  onClick={handleDownloadPowerPointOutput}
+                  className="w-full py-3 px-4 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  {tool.id === 'ppt-slide-generator'
+                    ? `تنزيل عرض PowerPoint الجاهز (.PPTX · ${pptSlidesPreview.length + 1} شرائح)`
+                    : `تنزيل مذكرة الملخص (.${pptHandoutFormat.toUpperCase()})`}
+                </button>
+              )}
+
+              {tool.hub === 'text' && (
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    onClick={() => handleDownloadSmartTextOutput('txt')}
+                    className="py-3 px-4 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+                  >
+                    <Download className="w-4 h-4" />
+                    تنزيل كملف نصي (.TXT)
+                  </button>
+                  <button
+                    onClick={() => handleDownloadSmartTextOutput('docx')}
+                    className="py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4" />
+                    تصدير إلى Word (.DOCX)
+                  </button>
+                </div>
               )}
 
               {tool.hub === 'image' && (
