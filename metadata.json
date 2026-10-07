@@ -1,0 +1,8 @@
+{
+  "name": "ToolNova",
+  "description": "An all-in-one, privacy-focused web platform for smart document, image, audio, and video editing tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
