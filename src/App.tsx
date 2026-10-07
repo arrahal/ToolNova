@@ -215,20 +215,19 @@ export default function App() {
     <div
       id="top"
       dir={currentLangMeta.dir}
-      className="min-h-screen flex flex-col bg-[#FAFAFC] dark:bg-[#0B0F19] text-slate-900 dark:text-slate-100 transition-colors duration-150 relative overflow-x-hidden"
+      className="min-h-screen flex flex-col bg-[#f7f7fa] dark:bg-[#0B0F19] text-[#111827] dark:text-slate-100 transition-colors duration-150 relative overflow-x-hidden"
     >
-      {/* Ambient Background Curves */}
+      {/* Subtle Clean iLovePDF Ambient Highlights */}
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
       >
-        <div className="absolute -top-36 -left-36 w-[540px] h-[540px] rounded-full bg-rose-200/35 dark:bg-rose-950/20 blur-3xl" />
-        <div className="absolute top-12 -right-32 w-[500px] h-[500px] rounded-full bg-orange-100/45 dark:bg-violet-950/20 blur-3xl" />
-        <div className="absolute -bottom-40 left-1/3 w-[640px] h-[420px] rounded-full bg-rose-100/40 dark:bg-cyan-950/15 blur-3xl" />
+        <div className="absolute -top-40 -left-40 w-[520px] h-[520px] rounded-full bg-rose-100/35 dark:bg-rose-950/15 blur-3xl" />
+        <div className="absolute top-16 -right-36 w-[480px] h-[480px] rounded-full bg-orange-100/30 dark:bg-violet-950/15 blur-3xl" />
       </div>
 
       {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-30 h-14 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/90 dark:border-slate-800 px-4 sm:px-6 flex items-center justify-between gap-3">
+      <header className="sticky top-0 z-30 h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_2px_rgba(15,23,42,0.03)] px-4 sm:px-6 flex items-center justify-between gap-3">
         <a
           href="#top"
           onClick={(e) => {
@@ -236,21 +235,21 @@ export default function App() {
             setActiveCategory('all');
             setSearchQuery('');
           }}
-          className="text-lg font-extrabold tracking-tight text-slate-900 dark:text-white whitespace-nowrap flex items-center gap-2"
+          className="text-xl font-extrabold tracking-tight text-[#111827] dark:text-white whitespace-nowrap flex items-center gap-2"
         >
-          <span className="w-2.5 h-2.5 rounded-full bg-rose-600 inline-block" />
+          <span className="w-3 h-3 rounded-full bg-[#e5322d] inline-block shadow-2xs" />
           ToolNova
         </a>
 
-        <nav className="hidden lg:flex items-center gap-5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+        <nav className="hidden lg:flex items-center gap-6 text-xs sm:text-[13px] font-bold text-slate-700 dark:text-slate-300">
           {(['pdf', 'image', 'audio', 'video', 'workflows'] as const).map(
             (navId) => (
               <button
                 key={navId}
                 onClick={() => setActiveCategory(navId)}
-                className={`whitespace-nowrap shrink-0 py-1 transition-colors cursor-pointer hover:text-slate-950 dark:hover:text-white hover:underline underline-offset-4 ${
+                className={`whitespace-nowrap shrink-0 py-1 transition-colors cursor-pointer hover:text-[#e5322d] dark:hover:text-white ${
                   activeCategory === navId
-                    ? 'text-rose-600 dark:text-rose-400 underline'
+                    ? 'text-[#e5322d] dark:text-rose-400 underline underline-offset-4 decoration-2'
                     : ''
                 }`}
               >
@@ -260,7 +259,7 @@ export default function App() {
           )}
           <a
             href="#pricing-section"
-            className="whitespace-nowrap shrink-0 py-1 text-rose-600 dark:text-rose-400 font-bold inline-flex items-center gap-1 hover:underline underline-offset-4"
+            className="whitespace-nowrap shrink-0 py-1 text-[#e5322d] dark:text-rose-400 font-bold inline-flex items-center gap-1 hover:underline underline-offset-4"
           >
             <Crown className="w-3.5 h-3.5" />
             {t.pricingNavLabel}
@@ -277,10 +276,10 @@ export default function App() {
               aria-expanded={isLangMenuOpen}
               aria-label="Select Language"
               title="تغيير اللغة / Change Language"
-              className={`p-2 rounded-lg border transition-colors flex items-center gap-1 cursor-pointer ${
+              className={`p-2 rounded-xl border transition-all flex items-center gap-1 cursor-pointer ${
                 isLangMenuOpen
-                  ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-500 text-rose-600 dark:text-rose-400'
-                  : 'border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  ? 'bg-red-50 border-[#e5322d] text-[#e5322d]'
+                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 hover:border-slate-300'
               }`}
             >
               <Globe className="w-4 h-4" />
@@ -289,7 +288,7 @@ export default function App() {
             {isLangMenuOpen && (
               <div
                 role="menu"
-                className={`absolute top-full mt-2 w-44 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1.5 z-50 ${
+                className={`absolute top-full mt-2 w-44 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-lg py-1.5 z-50 ${
                   currentLangMeta.dir === 'rtl' ? 'left-0' : 'right-0'
                 }`}
               >
@@ -306,15 +305,15 @@ export default function App() {
                       }}
                       className={`w-full px-3.5 py-2 text-xs font-bold flex items-center justify-between transition-colors cursor-pointer ${
                         isSelectedLang
-                          ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400'
-                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                          ? 'bg-red-50/80 dark:bg-rose-950/40 text-[#e5322d] dark:text-rose-400'
+                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
                       }`}
                     >
                       <span>{langOpt.label}</span>
                       <span className="flex items-center gap-1 text-[10px] font-mono text-slate-400">
                         {langOpt.shortLabel}
                         {isSelectedLang && (
-                          <Check className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                          <Check className="w-3.5 h-3.5 text-[#e5322d] dark:text-rose-400" />
                         )}
                       </span>
                     </button>
@@ -326,7 +325,7 @@ export default function App() {
 
           <button
             onClick={() => setDarkMode((prev) => !prev)}
-            className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 hover:border-slate-300 transition-all cursor-pointer"
             aria-label="Toggle color theme"
             title="Toggle Light / Dark Mode"
           >
@@ -341,9 +340,9 @@ export default function App() {
           <button
             type="button"
             onClick={() => setIsAuthModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/90 hover:border-rose-500 text-slate-800 dark:text-slate-100 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 hover:border-slate-300 text-[#111827] dark:text-slate-100 transition-all cursor-pointer"
           >
-            <User className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
+            <User className="w-3.5 h-3.5 text-[#e5322d] shrink-0" />
             <span className="max-w-[115px] truncate">
               {currentUser ? currentUser.fullName : t.loginBtnLabel}
             </span>
@@ -351,7 +350,7 @@ export default function App() {
 
           <button
             onClick={() => setIsWorkflowModalOpen(true)}
-            className="hidden sm:inline-flex px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            className="hidden sm:inline-flex px-4 py-2 text-xs font-bold text-white bg-[#e5322d] hover:bg-[#d12823] rounded-xl shadow-2xs transition-all whitespace-nowrap shrink-0 cursor-pointer"
           >
             {t.createWorkflowBtn}
           </button>
@@ -395,23 +394,23 @@ export default function App() {
       )}
 
       {/* Main Dashboard */}
-      <main className="relative z-10 flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-16">
+      <main className="relative z-10 flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 pt-9 pb-16">
         <section className="text-center max-w-4xl mx-auto mb-8">
           <h1
-            className="text-2xl sm:text-[26px] font-bold tracking-tight text-slate-900 dark:text-white mb-2"
+            className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#111827] dark:text-white mb-2.5"
             style={{ textWrap: 'balance' }}
           >
             {t.heroTitle}
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mb-6">
+          <p className="text-xs sm:text-sm text-[#64748b] dark:text-slate-400 mb-6 leading-relaxed">
             {t.heroSubtitlePrefix}
-            <span className="font-mono font-bold text-slate-800 dark:text-slate-200 tabular-nums">
+            <span className="font-mono font-bold text-[#111827] dark:text-slate-200 tabular-nums">
               {TOOLS_DATA.length}
             </span>
             {t.heroSubtitleSuffix}
           </p>
 
-          <div className="max-w-xl mx-auto mb-5 relative">
+          <div className="max-w-xl mx-auto mb-6 relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={searchInputRef}
@@ -419,7 +418,7 @@ export default function App() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t.searchPlaceholder}
-              className="w-full pl-10 pr-16 py-2.5 text-xs sm:text-sm rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 shadow-2xs focus:outline-none focus:border-slate-900 dark:focus:border-slate-400 transition-colors"
+              className="w-full pl-10 pr-16 py-2.5 text-xs sm:text-sm rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 shadow-2xs focus:outline-none focus:border-slate-400 dark:focus:border-slate-400 transition-colors"
             />
             {searchQuery ? (
               <button
@@ -430,7 +429,7 @@ export default function App() {
                 <X className="w-4 h-4" />
               </button>
             ) : (
-              <kbd className="hidden sm:inline-block absolute right-3 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
+              <kbd className="hidden sm:inline-block absolute right-3 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
                 /
               </kbd>
             )}
@@ -449,10 +448,10 @@ export default function App() {
                   role="tab"
                   aria-selected={isActive}
                   onClick={() => setActiveCategory(tab.id)}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap shrink-0 transition-all duration-150 cursor-pointer border ${
+                  className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap shrink-0 transition-all duration-150 cursor-pointer ${
                     isActive
-                      ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white shadow-2xs'
-                      : 'bg-white text-slate-700 border-slate-300/90 hover:border-slate-900 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-700 dark:hover:border-slate-400'
+                      ? 'bg-slate-900 text-white border border-slate-900 dark:bg-white dark:text-slate-900 shadow-2xs'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-700'
                   }`}
                 >
                   {t.categoryLabels[tab.id]}
@@ -466,16 +465,16 @@ export default function App() {
           <section className="mb-10">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                <h2 className="text-base font-extrabold text-[#111827] dark:text-white">
                   {t.savedWorkflowsTitle} ({workflows.length})
                 </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="text-xs text-[#64748b] dark:text-slate-400">
                   {t.savedWorkflowsDesc}
                 </p>
               </div>
               <button
                 onClick={() => setIsWorkflowModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-[#e5322d] hover:bg-[#d12823] text-white transition-colors cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
                 {t.newWorkflowBtn}
@@ -486,10 +485,10 @@ export default function App() {
               {workflows.map((wf) => (
                 <div
                   key={wf.id}
-                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col justify-between hover:border-slate-900 dark:hover:border-slate-400 transition-colors"
+                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between hover:shadow-md hover:border-slate-300 transition-all"
                 >
                   <div>
-                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-2">
+                    <div className="flex items-center justify-between text-xs text-[#64748b] dark:text-slate-400 mb-2">
                       <span className="font-mono tabular-nums">
                         {wf.steps.length} · ~{wf.estimatedSavedSec} {t.savedSecSuffix}
                       </span>
@@ -497,10 +496,10 @@ export default function App() {
                         {wf.runsCount} runs
                       </span>
                     </div>
-                    <h3 className="text-[15px] font-bold text-slate-900 dark:text-white mb-1">
+                    <h3 className="text-[15px] font-bold text-[#111827] dark:text-white mb-1">
                       {wf.name}
                     </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+                    <p className="text-xs text-[#64748b] dark:text-slate-400 mb-4 leading-relaxed">
                       {wf.description}
                     </p>
 
@@ -528,7 +527,7 @@ export default function App() {
 
                   <button
                     onClick={() => handleStartWorkflow(wf)}
-                    className="w-full py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    className="w-full py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />
                     {t.runPipelineBtn}
@@ -542,10 +541,10 @@ export default function App() {
         {filteredTools.length === 0 ? (
           <div className="max-w-md mx-auto my-12 p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center">
             <FolderKanban className="w-8 h-8 text-slate-400 mx-auto mb-3" />
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+            <h3 className="text-sm font-bold text-[#111827] dark:text-white mb-1">
               {t.noToolsTitle}
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+            <p className="text-xs text-[#64748b] dark:text-slate-400 mb-4">
               {t.noToolsDesc}
             </p>
             <button
@@ -553,14 +552,14 @@ export default function App() {
                 setSearchQuery('');
                 setActiveCategory('all');
               }}
-              className="px-4 py-2 rounded-lg text-xs font-semibold bg-slate-900 text-white dark:bg-white dark:text-slate-900 cursor-pointer"
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-[#e5322d] text-white cursor-pointer"
             >
               {t.resetFiltersBtn}
             </button>
           </div>
         ) : (
           <section aria-label="Tools Grid">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
               {filteredTools.map((tool) => {
                 const isSelected = selectedCardId === tool.id;
                 const loc = getLocalizedTool(tool, language);
@@ -570,10 +569,10 @@ export default function App() {
                     key={tool.id}
                     type="button"
                     onClick={() => handleOpenTool(tool)}
-                    className={`group text-start rounded-xl p-5 bg-white dark:bg-slate-900/95 transition-all duration-150 flex flex-col justify-between min-h-[168px] cursor-pointer ${
+                    className={`group text-start rounded-2xl p-5 bg-white dark:bg-slate-900/95 transition-all duration-150 flex flex-col justify-between min-h-[172px] cursor-pointer ${
                       isSelected
                         ? 'border-[1.5px] border-slate-900 dark:border-slate-200 shadow-sm'
-                        : 'border border-slate-200/90 dark:border-slate-800 hover:border-slate-900 dark:hover:border-slate-300 hover:shadow-md'
+                        : 'border border-slate-200 dark:border-slate-800 hover:shadow-md hover:border-slate-300 dark:hover:border-slate-300'
                     }`}
                   >
                     <div>
@@ -584,7 +583,7 @@ export default function App() {
                         <div className="text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1 font-medium">
                           {tool.isNew && (
                             <>
-                              <span className="text-blue-600 dark:text-blue-400 font-semibold">
+                              <span className="text-[#e5322d] dark:text-rose-400 font-bold">
                                 {t.newBadge}
                               </span>
                               <span aria-hidden="true">·</span>
@@ -594,18 +593,18 @@ export default function App() {
                         </div>
                       </div>
 
-                      <h2 className="text-[15px] font-bold text-slate-900 dark:text-slate-100 mt-4 mb-1.5 group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors leading-snug">
+                      <h2 className="text-[15px] font-bold text-[#111827] dark:text-slate-100 mt-4 mb-1.5 group-hover:text-[#e5322d] dark:group-hover:text-rose-400 transition-colors leading-snug">
                         {loc.title}
                       </h2>
 
-                      <p className="text-[11.5px] leading-relaxed text-slate-500 dark:text-slate-400 line-clamp-3">
+                      <p className="text-xs leading-relaxed text-[#64748b] dark:text-slate-400 line-clamp-3">
                         {loc.description}
                       </p>
                     </div>
 
-                    <div className="pt-3 mt-2 flex items-center justify-between text-[10.5px] text-slate-400 dark:text-slate-500">
+                    <div className="pt-3 mt-2 flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500">
                       <span>{loc.hubLabel}</span>
-                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-900 dark:text-white font-semibold inline-flex items-center gap-0.5">
+                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[#e5322d] dark:text-white font-bold inline-flex items-center gap-0.5">
                         {t.openAction}
                         <ArrowUpRight className="w-3 h-3" />
                       </span>
@@ -618,7 +617,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsWorkflowModalOpen(true)}
-                className="group relative overflow-hidden text-start rounded-xl p-5 bg-[#FFF3EE] dark:bg-rose-950/30 border border-rose-200/90 dark:border-rose-800/60 hover:border-rose-500 dark:hover:border-rose-400 transition-all duration-150 flex flex-col justify-between min-h-[168px] cursor-pointer"
+                className="group relative overflow-hidden text-start rounded-2xl p-5 bg-[#FFF5F2] dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 hover:shadow-md hover:border-[#e5322d] transition-all duration-150 flex flex-col justify-between min-h-[172px] cursor-pointer"
               >
                 <svg
                   aria-hidden="true"
@@ -646,15 +645,15 @@ export default function App() {
                 </svg>
 
                 <div className="relative z-10">
-                  <h2 className="text-[15px] font-bold text-slate-900 dark:text-white mb-2">
+                  <h2 className="text-[15px] font-bold text-[#111827] dark:text-white mb-2">
                     {t.createWorkflowCardTitle}
                   </h2>
-                  <p className="text-[11.5px] leading-relaxed text-slate-600 dark:text-slate-300">
+                  <p className="text-xs leading-relaxed text-[#64748b] dark:text-slate-300">
                     {t.createWorkflowCardDesc}
                   </p>
                 </div>
 
-                <div className="relative z-10 pt-4 mt-2 flex items-center gap-1 text-xs font-bold text-slate-900 dark:text-white group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors">
+                <div className="relative z-10 pt-4 mt-2 flex items-center gap-1 text-xs font-bold text-[#111827] dark:text-white group-hover:text-[#e5322d] dark:group-hover:text-rose-400 transition-colors">
                   <span>{t.createWorkflowBtn}</span>
                   <ArrowUpRight className="w-3.5 h-3.5" />
                 </div>
@@ -663,12 +662,12 @@ export default function App() {
           </section>
         )}
 
-        <section className="mt-16 pt-12 border-t border-slate-200/80 dark:border-slate-800/80">
+        <section className="mt-16 pt-12 border-t border-slate-200 dark:border-slate-800/80">
           <div className="text-center max-w-2xl mx-auto mb-8">
-            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white mb-2">
+            <h2 className="text-xl sm:text-2xl font-extrabold text-[#111827] dark:text-white mb-2">
               {t.workYourWayTitle}
             </h2>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-xs sm:text-sm text-[#64748b] dark:text-slate-400">
               {t.workYourWaySubtitle}
             </p>
           </div>
@@ -677,27 +676,27 @@ export default function App() {
             {workflows.slice(0, 3).map((wf, index) => (
               <div
                 key={wf.id}
-                className="p-5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 flex flex-col justify-between"
+                className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between"
               >
                 <div>
                   <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                    <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    <span className="font-bold text-slate-700 dark:text-slate-300">
                       0{index + 1}. {t.presetPipelineLabel}
                     </span>
                     <span className="font-mono tabular-nums">
                       ~{wf.estimatedSavedSec} {t.savedSecSuffix}
                     </span>
                   </div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+                  <h3 className="text-sm font-bold text-[#111827] dark:text-white mb-1">
                     {wf.name}
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+                  <p className="text-xs text-[#64748b] dark:text-slate-400 mb-4 leading-relaxed">
                     {wf.description}
                   </p>
                 </div>
 
                 <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-                  <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[65%]">
+                  <div className="text-[11px] text-[#64748b] dark:text-slate-400 truncate max-w-[65%]">
                     {wf.steps
                       .map((id) => {
                         const found = TOOLS_DATA.find((item) => item.id === id);
@@ -708,7 +707,7 @@ export default function App() {
                   </div>
                   <button
                     onClick={() => handleStartWorkflow(wf)}
-                    className="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline inline-flex items-center gap-1 shrink-0 cursor-pointer"
+                    className="text-xs font-bold text-[#e5322d] dark:text-rose-400 hover:underline inline-flex items-center gap-1 shrink-0 cursor-pointer"
                   >
                     {t.launchBtn}
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -741,25 +740,25 @@ export default function App() {
           />
 
           <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="p-5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 flex items-start gap-4">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:shadow-md hover:border-slate-300 transition-all flex items-start gap-4">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 flex items-center justify-center shrink-0">
                 <ShieldCheck className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+                <h3 className="text-sm font-bold text-[#111827] dark:text-white mb-1">
                   {t.privacyTitle}
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                <p className="text-xs text-[#64748b] dark:text-slate-400 leading-relaxed">
                   {t.privacyDesc}
                 </p>
               </div>
             </div>
 
-            <div className="p-5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800">
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:shadow-md hover:border-slate-300 transition-all">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <Cpu className="w-4 h-4 text-slate-700 dark:text-slate-300" />
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  <Cpu className="w-4 h-4 text-[#e5322d]" />
+                  <h3 className="text-sm font-bold text-[#111827] dark:text-white">
                     {t.sessionActivityTitle}
                   </h3>
                 </div>
@@ -769,7 +768,7 @@ export default function App() {
               </div>
 
               {sessionHistory.length === 0 ? (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="text-xs text-[#64748b] dark:text-slate-400">
                   {t.sessionEmptyDesc}
                 </p>
               ) : (
@@ -781,7 +780,7 @@ export default function App() {
                     >
                       <span className="flex items-center gap-1.5 truncate">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <strong>{item.toolTitle}:</strong> {item.detail}
+                        <strong className="text-[#111827] dark:text-white">{item.toolTitle}:</strong> {item.detail}
                       </span>
                       <span className="font-mono text-[11px] text-slate-400 tabular-nums ml-2 shrink-0">
                         {item.time}
@@ -795,10 +794,10 @@ export default function App() {
         </section>
       </main>
 
-      <footer className="relative z-10 border-t border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 py-6">
-        <div className="max-w-[1440px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
+      <footer className="relative z-10 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 py-6">
+        <div className="max-w-[1440px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#64748b] dark:text-slate-400">
           <div>
-            <strong className="text-slate-900 dark:text-white">ToolNova.com</strong> —{' '}
+            <strong className="text-[#111827] dark:text-white font-extrabold">ToolNova.com</strong> —{' '}
             {t.heroSubtitlePrefix}
             {TOOLS_DATA.length}
             {t.heroSubtitleSuffix}
@@ -809,7 +808,7 @@ export default function App() {
                 {i > 0 && <span>·</span>}
                 <button
                   onClick={() => setActiveCategory(hubId)}
-                  className="hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+                  className="hover:text-[#e5322d] dark:hover:text-white font-semibold transition-colors cursor-pointer"
                 >
                   {t.categoryLabels[hubId]}
                 </button>

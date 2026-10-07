@@ -4,12 +4,15 @@
 
 @layer base {
   :root {
-    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-sans: 'Cairo', 'Tajawal', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
+    --brand-red: #e5322d;
   }
 
   body {
     font-family: var(--font-sans);
+    background-color: #f7f7fa;
+    color: #111827;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 

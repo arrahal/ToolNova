@@ -51,18 +51,18 @@ export const WorkflowBuilderModal: React.FC<WorkflowBuilderModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 backdrop-blur-xs p-4 overflow-y-auto">
       <div className="relative w-full max-w-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden my-8">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-[#FFF5F0] dark:bg-slate-900">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-rose-600 text-white flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-[#e5322d] text-white flex items-center justify-center">
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
+              <h2 className="text-base font-extrabold text-[#111827] dark:text-white">
                 Create a Custom Workflow
               </h2>
-              <p className="text-xs text-slate-600 dark:text-slate-400">
+              <p className="text-xs text-[#64748b] dark:text-slate-400">
                 Chain up to 5 PDF, Image, Audio, or Video tools into a reusable 1-click pipeline
               </p>
             </div>
@@ -78,7 +78,7 @@ export const WorkflowBuilderModal: React.FC<WorkflowBuilderModalProps> = ({
         <form onSubmit={handleSave} className="p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+              <label className="block text-xs font-bold text-[#111827] dark:text-slate-300 mb-1.5">
                 Workflow Name
               </label>
               <input
@@ -87,11 +87,11 @@ export const WorkflowBuilderModal: React.FC<WorkflowBuilderModalProps> = ({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g., Podcast Audio Master & Transcribe"
-                className="w-full px-3.5 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-slate-400"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+              <label className="block text-xs font-bold text-[#111827] dark:text-slate-300 mb-1.5">
                 Short Description
               </label>
               <input
@@ -99,22 +99,22 @@ export const WorkflowBuilderModal: React.FC<WorkflowBuilderModalProps> = ({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Describe what this workflow automates..."
-                className="w-full px-3.5 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-slate-400"
               />
             </div>
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <span className="text-xs font-bold text-[#111827] dark:text-slate-300">
                 Pipeline Execution Sequence ({selectedStepIds.length}/5 steps)
               </span>
-              <span className="text-xs text-slate-500 font-mono tabular-nums">
+              <span className="text-xs text-[#64748b] font-mono tabular-nums">
                 Est. time saved: ~{selectedStepIds.length * 22}s / run
               </span>
             </div>
 
-            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-2 min-h-[68px]">
+            <div className="p-4 rounded-2xl bg-[#f7f7fa] dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-2 min-h-[68px]">
               {selectedStepIds.length === 0 ? (
                 <span className="text-xs text-slate-400">
                   Click any tool below to append it to your pipeline sequence...
@@ -126,18 +126,18 @@ export const WorkflowBuilderModal: React.FC<WorkflowBuilderModalProps> = ({
                   const StepIcon = t.icon;
                   return (
                     <React.Fragment key={`${id}-${idx}`}>
-                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xs">
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xs">
                         <span className="text-[11px] font-mono text-slate-400 tabular-nums">
                           0{idx + 1}
                         </span>
-                        <StepIcon className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                        <StepIcon className="w-3.5 h-3.5 text-[#e5322d]" />
+                        <span className="text-xs font-bold text-[#111827] dark:text-slate-200 whitespace-nowrap">
                           {t.title}
                         </span>
                         <button
                           type="button"
                           onClick={() => handleRemoveStep(idx)}
-                          className="text-slate-400 hover:text-rose-600 transition-colors ml-1"
+                          className="text-slate-400 hover:text-[#e5322d] transition-colors ml-1"
                           title="Remove step"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -154,7 +154,7 @@ export const WorkflowBuilderModal: React.FC<WorkflowBuilderModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+            <label className="block text-xs font-bold text-[#111827] dark:text-slate-300 mb-2">
               Click a Tool to Append to Pipeline
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-56 overflow-y-auto p-1">
@@ -166,14 +166,14 @@ export const WorkflowBuilderModal: React.FC<WorkflowBuilderModalProps> = ({
                     type="button"
                     disabled={selectedStepIds.length >= 5}
                     onClick={() => handleAddStep(tool.id)}
-                    className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:border-slate-900 dark:hover:border-slate-400 bg-white dark:bg-slate-900 text-left transition-colors disabled:opacity-40 cursor-pointer"
+                    className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:shadow-sm hover:border-slate-300 bg-white dark:bg-slate-900 text-left transition-all disabled:opacity-40 cursor-pointer"
                   >
-                    <Icon className="w-4 h-4 text-slate-700 dark:text-slate-300 shrink-0" />
+                    <Icon className="w-4 h-4 text-[#e5322d] shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <div className="text-xs font-medium text-slate-900 dark:text-slate-100 truncate">
+                      <div className="text-xs font-bold text-[#111827] dark:text-slate-100 truncate">
                         {tool.title}
                       </div>
-                      <div className="text-[10px] text-slate-500 truncate">
+                      <div className="text-[10px] text-[#64748b] truncate">
                         {tool.hubLabel}
                       </div>
                     </div>
@@ -188,14 +188,14 @@ export const WorkflowBuilderModal: React.FC<WorkflowBuilderModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={selectedStepIds.length === 0}
-              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 transition-colors cursor-pointer disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold bg-[#e5322d] hover:bg-[#d12823] text-white transition-colors cursor-pointer disabled:opacity-40"
             >
               <Check className="w-4 h-4" />
               Save Custom Workflow

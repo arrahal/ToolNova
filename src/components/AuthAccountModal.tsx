@@ -285,25 +285,25 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur-xs p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 backdrop-blur-xs p-4 overflow-y-auto">
       <div className="relative w-full max-w-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden my-6">
-        {/* Top Accent Banner */}
-        <div className="px-6 py-5 bg-gradient-to-r from-slate-900 via-slate-800 to-rose-950 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-rose-600 flex items-center justify-center shadow-md shrink-0">
-              <User className="w-5 h-5 text-white" />
+        {/* Clean Light iLovePDF Header */}
+        <div className="px-6 py-5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-red-50 text-[#e5322d] border border-red-100 flex items-center justify-center shrink-0">
+              <User className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-bold">
+              <h2 className="text-base sm:text-lg font-extrabold text-[#111827] dark:text-white">
                 {currentUser ? L.profileTitle : mode === 'login' ? L.signInTab : L.registerTab}
               </h2>
-              <p className="text-xs text-slate-300 mt-0.5">{L.subtitle}</p>
+              <p className="text-xs text-[#64748b] dark:text-slate-400 mt-0.5">{L.subtitle}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -311,17 +311,17 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
 
         {/* Mode Switcher Tabs (when not logged in) */}
         {!currentUser && (
-          <div className="grid grid-cols-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-1.5 gap-1.5">
+          <div className="grid grid-cols-2 border-b border-slate-200 dark:border-slate-800 bg-[#f7f7fa] dark:bg-slate-900/60 p-1.5 gap-1.5">
             <button
               type="button"
               onClick={() => {
                 setMode('register');
                 setFormError('');
               }}
-              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`py-2 px-3 rounded-full text-xs font-bold transition-all cursor-pointer ${
                 mode === 'register'
-                  ? 'bg-rose-600 text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 text-white shadow-2xs'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
               {L.registerTab}
@@ -332,10 +332,10 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                 setMode('login');
                 setFormError('');
               }}
-              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`py-2 px-3 rounded-full text-xs font-bold transition-all cursor-pointer ${
                 mode === 'login'
-                  ? 'bg-rose-600 text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-slate-900 text-white shadow-2xs'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
               {L.signInTab}
@@ -360,7 +360,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
           {/* Email & Password Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div className={currentUser ? 'sm:col-span-2' : ''}>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              <label className="block text-xs font-bold text-[#111827] dark:text-slate-300 mb-1.5">
                 {L.emailLabel} *
               </label>
               <div className="relative">
@@ -371,14 +371,14 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder={L.emailPlaceholder}
-                  className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
+                  className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-slate-400"
                 />
               </div>
             </div>
 
             {!currentUser && (
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label className="block text-xs font-bold text-[#111827] dark:text-slate-300 mb-1.5">
                   {L.passwordLabel} *
                 </label>
                 <div className="relative">
@@ -389,19 +389,19 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder={L.passwordPlaceholder}
-                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
+                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-slate-400"
                   />
                 </div>
               </div>
             )}
           </div>
 
-          {/* Personal Information Fields (Always shown in Register or Profile view, or optional in Login) */}
+          {/* Personal Information Fields */}
           {(mode === 'register' || Boolean(currentUser)) && (
             <div className="space-y-3.5 pt-1 border-t border-slate-100 dark:border-slate-800">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  <label className="block text-xs font-bold text-[#111827] dark:text-slate-300 mb-1.5">
                     {L.fullNameLabel}
                   </label>
                   <div className="relative">
@@ -411,13 +411,13 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       placeholder={L.fullNamePlaceholder}
-                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
+                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-slate-400"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  <label className="block text-xs font-bold text-[#111827] dark:text-slate-300 mb-1.5">
                     {L.phoneLabel}
                   </label>
                   <div className="relative">
@@ -427,7 +427,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder={L.phonePlaceholder}
-                      className="w-full pl-9 pr-3 py-2 text-xs font-mono rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
+                      className="w-full pl-9 pr-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-slate-400"
                     />
                   </div>
                 </div>
@@ -435,7 +435,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  <label className="block text-xs font-bold text-[#111827] dark:text-slate-300 mb-1.5">
                     {L.companyLabel}
                   </label>
                   <div className="relative">
@@ -445,13 +445,13 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                       value={companyOrRole}
                       onChange={(e) => setCompanyOrRole(e.target.value)}
                       placeholder={L.companyPlaceholder}
-                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
+                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-slate-400"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  <label className="block text-xs font-bold text-[#111827] dark:text-slate-300 mb-1.5">
                     {L.countryLabel}
                   </label>
                   <div className="relative">
@@ -461,7 +461,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                       value={country}
                       onChange={(e) => setCountry(e.target.value)}
                       placeholder={L.countryPlaceholder}
-                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
+                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-slate-400"
                     />
                   </div>
                 </div>
@@ -470,7 +470,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
               {/* Active Plan Selector inside Account */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <label className="block text-xs font-bold text-[#111827] dark:text-slate-300">
                     {L.planLabel}
                   </label>
                   {onOpenPricing && (
@@ -480,7 +480,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                         onClose();
                         onOpenPricing();
                       }}
-                      className="text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                      className="text-[11px] font-bold text-[#e5322d] hover:underline inline-flex items-center gap-1 cursor-pointer"
                     >
                       <CreditCard className="w-3 h-3" />
                       {L.upgradePlanBtn}
@@ -493,10 +493,10 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                       key={tier}
                       type="button"
                       onClick={() => setPlanId(tier)}
-                      className={`py-2 px-2.5 rounded-xl text-[11px] font-bold border transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                      className={`py-2 px-2.5 rounded-full text-[11px] font-bold border transition-all cursor-pointer flex items-center justify-center gap-1 ${
                         planId === tier
-                          ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 shadow-xs'
-                          : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                          ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                       }`}
                     >
                       {tier === 'pro' && <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />}
@@ -508,7 +508,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
             </div>
           )}
 
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 flex items-center gap-2.5 text-[11px] text-slate-600 dark:text-slate-400">
+          <div className="p-3 rounded-xl bg-[#f7f7fa] dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 flex items-center gap-2.5 text-[11px] text-[#64748b] dark:text-slate-400">
             <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{L.privacyNote}</span>
           </div>
@@ -521,7 +521,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                   onLogout();
                   onClose();
                 }}
-                className="px-4 py-2.5 rounded-xl border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="px-4 py-2.5 rounded-xl border border-rose-200 dark:border-rose-800 text-[#e5322d] hover:bg-red-50 text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <LogOut className="w-3.5 h-3.5" />
                 {L.logoutBtn}
@@ -530,7 +530,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
 
             <button
               type="submit"
-              className="flex-1 py-2.5 px-5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-sm transition-colors cursor-pointer"
+              className="flex-1 py-2.5 px-5 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white text-xs font-bold shadow-sm transition-colors cursor-pointer"
             >
               {currentUser
                 ? L.saveProfileChanges
