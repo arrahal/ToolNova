@@ -13,6 +13,9 @@ import {
   Cpu,
   FolderKanban,
   Globe,
+  User,
+  Crown,
+  Check,
 } from 'lucide-react';
 import {
   TOOLS_DATA,
@@ -31,6 +34,8 @@ import {
 import { ToolBrandIcon } from './components/ToolBrandIcon';
 import { ToolWorkspaceModal } from './components/ToolWorkspaceModal';
 import { WorkflowBuilderModal } from './components/WorkflowBuilderModal';
+import { AuthAccountModal, UserProfileData } from './components/AuthAccountModal';
+import { PricingPlansSection, PlanTierId } from './components/PricingPlansSection';
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(false);
@@ -48,8 +53,31 @@ export default function App() {
   const [sessionHistory, setSessionHistory] = useState<
     { id: string; toolTitle: string; detail: string; time: string }[]
   >([]);
+  const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserProfileData | null>(() => {
+    try {
+      const saved = localStorage.getItem('toolnova_user_profile');
+      return saved ? (JSON.parse(saved) as UserProfileData) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [activePlan, setActivePlan] = useState<PlanTierId>(() => {
+    try {
+      const saved = localStorage.getItem('toolnova_user_profile');
+      if (saved) {
+        const parsed = JSON.parse(saved) as UserProfileData;
+        if (parsed.planId) return parsed.planId;
+      }
+    } catch {
+      // ignore
+    }
+    return 'pro';
+  });
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const langMenuRef = useRef<HTMLDivElement | null>(null);
   const t = UI_TRANSLATIONS[language];
   const currentLangMeta =
     LANGUAGE_OPTIONS.find((l) => l.code === language) || LANGUAGE_OPTIONS[0];
@@ -67,6 +95,19 @@ export default function App() {
     document.documentElement.lang = language;
     document.documentElement.dir = currentLangMeta.dir;
   }, [language, currentLangMeta.dir]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        langMenuRef.current &&
+        !langMenuRef.current.contains(e.target as Node)
+      ) {
+        setIsLangMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -201,7 +242,7 @@ export default function App() {
           ToolNova
         </a>
 
-        <nav className="hidden lg:flex items-center gap-6 text-xs font-semibold text-slate-700 dark:text-slate-300">
+        <nav className="hidden lg:flex items-center gap-5 text-xs font-semibold text-slate-700 dark:text-slate-300">
           {(['pdf', 'image', 'audio', 'video', 'workflows'] as const).map(
             (navId) => (
               <button
@@ -217,36 +258,70 @@ export default function App() {
               </button>
             )
           )}
+          <a
+            href="#pricing-section"
+            className="whitespace-nowrap shrink-0 py-1 text-rose-600 dark:text-rose-400 font-bold inline-flex items-center gap-1 hover:underline underline-offset-4"
+          >
+            <Crown className="w-3.5 h-3.5" />
+            {t.pricingNavLabel}
+          </a>
         </nav>
 
-        {/* Right Actions: Language Switcher (AR / FR / EN / ES) + Theme Toggle + Create Workflow */}
+        {/* Right Actions: Globe Language Popover + Theme Toggle + Email Login/Profile + Create Workflow */}
         <div className="flex items-center gap-2">
-          {/* Segmented 4-Language Switcher Bar */}
-          <div
-            role="group"
-            aria-label="Language Selector"
-            className="flex items-center bg-slate-100 dark:bg-slate-800/90 p-0.5 rounded-lg border border-slate-200/90 dark:border-slate-700"
-          >
-            <Globe className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 mx-1.5 hidden sm:inline-block" />
-            {LANGUAGE_OPTIONS.map((langOpt) => {
-              const isSelectedLang = language === langOpt.code;
-              return (
-                <button
-                  key={langOpt.code}
-                  type="button"
-                  onClick={() => setLanguage(langOpt.code)}
-                  title={langOpt.label}
-                  className={`px-2 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    isSelectedLang
-                      ? 'bg-white dark:bg-slate-900 text-rose-600 dark:text-rose-400 shadow-2xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
-                  }`}
-                >
-                  <span className="sm:hidden">{langOpt.shortLabel}</span>
-                  <span className="hidden sm:inline">{langOpt.label}</span>
-                </button>
-              );
-            })}
+          {/* Compact Globe Button that opens the Language Selection Popover on Click */}
+          <div ref={langMenuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setIsLangMenuOpen((prev) => !prev)}
+              aria-expanded={isLangMenuOpen}
+              aria-label="Select Language"
+              title="تغيير اللغة / Change Language"
+              className={`p-2 rounded-lg border transition-colors flex items-center gap-1 cursor-pointer ${
+                isLangMenuOpen
+                  ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-500 text-rose-600 dark:text-rose-400'
+                  : 'border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              <Globe className="w-4 h-4" />
+            </button>
+
+            {isLangMenuOpen && (
+              <div
+                role="menu"
+                className={`absolute top-full mt-2 w-44 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1.5 z-50 ${
+                  currentLangMeta.dir === 'rtl' ? 'left-0' : 'right-0'
+                }`}
+              >
+                {LANGUAGE_OPTIONS.map((langOpt) => {
+                  const isSelectedLang = language === langOpt.code;
+                  return (
+                    <button
+                      key={langOpt.code}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setLanguage(langOpt.code);
+                        setIsLangMenuOpen(false);
+                      }}
+                      className={`w-full px-3.5 py-2 text-xs font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                        isSelectedLang
+                          ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400'
+                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <span>{langOpt.label}</span>
+                      <span className="flex items-center gap-1 text-[10px] font-mono text-slate-400">
+                        {langOpt.shortLabel}
+                        {isSelectedLang && (
+                          <Check className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <button
@@ -260,6 +335,18 @@ export default function App() {
             ) : (
               <Moon className="w-4 h-4" />
             )}
+          </button>
+
+          {/* Email Sign In / Personal Info Account Button */}
+          <button
+            type="button"
+            onClick={() => setIsAuthModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/90 hover:border-rose-500 text-slate-800 dark:text-slate-100 transition-colors cursor-pointer"
+          >
+            <User className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
+            <span className="max-w-[115px] truncate">
+              {currentUser ? currentUser.fullName : t.loginBtnLabel}
+            </span>
           </button>
 
           <button
@@ -631,7 +718,29 @@ export default function App() {
             ))}
           </div>
 
-          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-5">
+          <PricingPlansSection
+            language={language}
+            activePlan={activePlan}
+            onSelectPlan={(plan) => {
+              setActivePlan(plan);
+              if (currentUser) {
+                const updated: UserProfileData = {
+                  ...currentUser,
+                  planId: plan,
+                };
+                setCurrentUser(updated);
+                try {
+                  localStorage.setItem('toolnova_user_profile', JSON.stringify(updated));
+                } catch {
+                  // ignore
+                }
+              } else {
+                setIsAuthModalOpen(true);
+              }
+            }}
+          />
+
+          <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="p-5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 flex items-start gap-4">
               <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
                 <ShieldCheck className="w-5 h-5" />
@@ -722,6 +831,39 @@ export default function App() {
         onSaveWorkflow={(newWf) => {
           setWorkflows((prev) => [newWf, ...prev]);
           setActiveCategory('workflows');
+        }}
+      />
+
+      <AuthAccountModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        language={language}
+        currentUser={currentUser}
+        onSaveUser={(user) => {
+          setCurrentUser(user);
+          setActivePlan(user.planId);
+          try {
+            localStorage.setItem('toolnova_user_profile', JSON.stringify(user));
+          } catch {
+            // ignore
+          }
+          handleRecordHistory(
+            language === 'ar' ? 'الحساب الشخصي' : 'User Account',
+            `${user.fullName} (${user.email}) · Plan: ${user.planId.toUpperCase()}`
+          );
+        }}
+        onLogout={() => {
+          setCurrentUser(null);
+          try {
+            localStorage.removeItem('toolnova_user_profile');
+          } catch {
+            // ignore
+          }
+        }}
+        onOpenPricing={() => {
+          document
+            .getElementById('pricing-section')
+            ?.scrollIntoView({ behavior: 'smooth' });
         }}
       />
     </div>

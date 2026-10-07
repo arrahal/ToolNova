@@ -41,6 +41,11 @@ export interface UiStrings {
   savedWorkflowsDesc: string;
   newWorkflowBtn: string;
   runPipelineBtn: string;
+  pricingNavLabel: string;
+  loginBtnLabel: string;
+  registerBtnLabel: string;
+  accountProfileLabel: string;
+  logoutBtnLabel: string;
   categoryLabels: Record<HubCategory, string>;
   hubLabels: Record<'pdf' | 'image' | 'audio' | 'video', string>;
 }
@@ -77,6 +82,11 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     savedWorkflowsDesc: 'قم بأتمتة مهام الـ PDF والصور والصوت في خطوات متسلسلة.',
     newWorkflowBtn: 'مسار جديد',
     runPipelineBtn: 'تشغيل المسار الآن',
+    pricingNavLabel: 'الأسعار والباقات',
+    loginBtnLabel: 'تسجيل الدخول',
+    registerBtnLabel: 'إنشاء حساب',
+    accountProfileLabel: 'حسابي الشخصي',
+    logoutBtnLabel: 'تسجيل الخروج',
     categoryLabels: {
       all: 'الكل',
       workflows: 'مسارات العمل',
@@ -126,6 +136,11 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     savedWorkflowsDesc: 'Automatisez vos tâches PDF, Image, Audio et Vidéo en séquence.',
     newWorkflowBtn: 'Nouveau flux',
     runPipelineBtn: 'Exécuter le flux',
+    pricingNavLabel: 'Tarifs & Forfaits',
+    loginBtnLabel: 'Connexion',
+    registerBtnLabel: 'Créer un compte',
+    accountProfileLabel: 'Mon Profil',
+    logoutBtnLabel: 'Déconnexion',
     categoryLabels: {
       all: 'Tout',
       workflows: 'Flux de travail',
@@ -176,6 +191,11 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
       'Automate repetitive PDF, Image, Audio, and Video tasks in a single sequential pipeline.',
     newWorkflowBtn: 'New Workflow',
     runPipelineBtn: 'Run Pipeline Now',
+    pricingNavLabel: 'Pricing & Plans',
+    loginBtnLabel: 'Sign In',
+    registerBtnLabel: 'Create Account',
+    accountProfileLabel: 'My Account',
+    logoutBtnLabel: 'Sign Out',
     categoryLabels: {
       all: 'All',
       workflows: 'Workflows',
@@ -225,6 +245,11 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     savedWorkflowsDesc: 'Automatiza tareas repetitivas de PDF, Imagen, Audio y Video en secuencia.',
     newWorkflowBtn: 'Nuevo flujo',
     runPipelineBtn: 'Ejecutar flujo ahora',
+    pricingNavLabel: 'Precios y Planes',
+    loginBtnLabel: 'Iniciar sesión',
+    registerBtnLabel: 'Crear cuenta',
+    accountProfileLabel: 'Mi Cuenta',
+    logoutBtnLabel: 'Cerrar sesión',
     categoryLabels: {
       all: 'Todo',
       workflows: 'Flujos',
