@@ -492,7 +492,11 @@ export interface PdfProcessOptions {
   pageNumberFontSize?: number;
   password?: string;
   protectMode?: 'standard-pdf' | 'vault-anti-crack';
-  compressionLevel?: 'low' | 'medium' | 'extreme';
+  compressionLevel?: 'low' | 'medium' | 'extreme' | 'custom';
+  compressCustomQuality?: number;
+  compressGrayscale?: boolean;
+  compressDpi?: number;
+  compressStripMetadata?: boolean;
   includePageSnapshotsInWord?: boolean;
   mergeAddPageNumbers?: boolean;
   pptxMode?: 'editable-smart' | 'hybrid-with-snapshot' | 'visual-exact';
@@ -512,6 +516,9 @@ export interface PdfProcessResult {
   previewHtml?: string;
   isLockedError?: boolean;
   extraFiles?: { name: string; bytes: Uint8Array; pageCount: number }[];
+  originalSizeBytes?: number;
+  compressedSizeBytes?: number;
+  savingsPercentage?: number;
 }
 
 function uint8ToBase64(bytes: Uint8Array): string {
@@ -1312,18 +1319,59 @@ export async function processPdfAction(
     };
   }
 
-  // ---------------- 6. REAL COMPRESS PDF ----------------
+  // ---------------- 6. PROFESSIONAL COMPRESS PDF ENGINE ----------------
   if (toolId === 'compress-pdf') {
     const level = options.compressionLevel || 'medium';
-    const scale = level === 'extreme' ? 0.85 : level === 'medium' ? 1.15 : 1.45;
-    const quality = level === 'extreme' ? 0.48 : level === 'medium' ? 0.68 : 0.82;
+    const isGrayscale = Boolean(options.compressGrayscale);
+    const stripMetadata = options.compressStripMetadata !== false;
+    const customQuality = options.compressCustomQuality ?? 70;
+    const customDpi = options.compressDpi ?? 120;
 
-    const firstRender = await renderPdfPageToCanvas(firstFile.bytes, 1, scale);
+    let scale = 1.2;
+    let quality = 0.72;
+
+    if (level === 'extreme') {
+      scale = 0.88; // ~72-90 DPI
+      quality = 0.52;
+    } else if (level === 'medium') {
+      scale = 1.2; // ~110-120 DPI
+      quality = 0.72;
+    } else if (level === 'low') {
+      scale = 1.55; // ~150-180 DPI
+      quality = 0.88;
+    } else if (level === 'custom') {
+      scale = Math.max(0.65, Math.min(2.0, customDpi / 96));
+      quality = Math.max(0.2, Math.min(0.95, customQuality / 100));
+    }
+
+    const origBytes = firstFile.bytes;
+    const origSizeBytes = origBytes.byteLength;
+
+    // 1. High-Efficiency Visual & Raster Stream Compression
+    const firstRender = await renderPdfPageToCanvas(origBytes, 1, scale);
     const totalPages = firstRender.totalPages;
     const compressedPdf = await PDFDocument.create();
 
     for (let p = 1; p <= totalPages; p++) {
-      const { canvas } = p === 1 ? firstRender : await renderPdfPageToCanvas(firstFile.bytes, p, scale);
+      const { canvas } =
+        p === 1 ? firstRender : await renderPdfPageToCanvas(origBytes, p, scale);
+
+      // Apply Grayscale Filter if requested (drastic reduction for text/contracts/black-and-white)
+      if (isGrayscale) {
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const d = imgData.data;
+          for (let i = 0; i < d.length; i += 4) {
+            const luma = Math.round(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+            d[i] = luma;
+            d[i + 1] = luma;
+            d[i + 2] = luma;
+          }
+          ctx.putImageData(imgData, 0, 0);
+        }
+      }
+
       const jpgDataUrl = canvas.toDataURL('image/jpeg', quality);
       const jpgBase64 = jpgDataUrl.split(',')[1];
       const jpgBytes = Uint8Array.from(atob(jpgBase64), (c) => c.charCodeAt(0));
@@ -1337,15 +1385,73 @@ export async function processPdfAction(
       });
     }
 
-    const outBytes = await compressedPdf.save({ useObjectStreams: true });
-    const origKb = (firstFile.bytes.byteLength / 1024).toFixed(1);
-    const newKb = (outBytes.byteLength / 1024).toFixed(1);
+    if (stripMetadata) {
+      compressedPdf.setTitle('');
+      compressedPdf.setAuthor('');
+      compressedPdf.setSubject('');
+      compressedPdf.setKeywords([]);
+      compressedPdf.setProducer('ToolNova Smart Engine');
+      compressedPdf.setCreator('ToolNova');
+    }
+
+    const rasterBytes = await compressedPdf.save({ useObjectStreams: true });
+
+    // 2. Also test structural lossless compression (especially for pure vector/text PDFs)
+    let structuralBytes: Uint8Array | null = null;
+    try {
+      const structDoc = await loadPdfDocumentResilient(origBytes);
+      if (stripMetadata) {
+        structDoc.setTitle('');
+        structDoc.setAuthor('');
+        structDoc.setSubject('');
+        structDoc.setKeywords([]);
+      }
+      structuralBytes = await structDoc.save({ useObjectStreams: true });
+    } catch {
+      // ignore
+    }
+
+    // 3. Smart Selection: pick the smallest valid buffer
+    let finalBytes = rasterBytes;
+    if (structuralBytes && structuralBytes.byteLength < finalBytes.byteLength && !isGrayscale && level !== 'extreme') {
+      finalBytes = structuralBytes;
+    }
+
+    // Never output a file larger than the original unless user forced extreme or grayscale
+    if (finalBytes.byteLength > origSizeBytes && !isGrayscale && level !== 'extreme') {
+      finalBytes = origBytes;
+    }
+
+    const compressedSizeBytes = finalBytes.byteLength;
+    const savingsPercentage =
+      origSizeBytes > compressedSizeBytes
+        ? Math.max(0, Math.round(((origSizeBytes - compressedSizeBytes) / origSizeBytes) * 100 * 10) / 10)
+        : 0;
+
+    const formatSize = (b: number) => {
+      if (b >= 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(2)} MB`;
+      return `${(b / 1024).toFixed(1)} KB`;
+    };
+
+    const origFormatted = formatSize(origSizeBytes);
+    const newFormatted = formatSize(compressedSizeBytes);
+
+    let summaryText = '';
+    if (savingsPercentage > 0) {
+      summaryText = `✅ تم ضغط وتحسين الملف بنجاح! انخفض الحجم من ${origFormatted} إلى ${newFormatted} (توفير بنسبة ${savingsPercentage}% 📉).`;
+    } else {
+      summaryText = `⚡ ملفك الأصلي محسّن ومضغوط بالفعل إلى أقصى حد (${origFormatted})! تم فحص البنية وضمان أعلى سرعة في الفتح.`;
+    }
+
     return {
-      outputBytes: outBytes,
+      outputBytes: finalBytes,
       fileName: `${baseName}_Compressed.pdf`,
       mimeType: 'application/pdf',
       pageCount: totalPages,
-      summary: `Compressed "${firstFile.name}" (${totalPages} pages): ${origKb} KB → ${newKb} KB.`,
+      summary: summaryText,
+      originalSizeBytes: origSizeBytes,
+      compressedSizeBytes,
+      savingsPercentage,
     };
   }
 

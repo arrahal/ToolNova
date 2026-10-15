@@ -29,6 +29,9 @@ import {
   Archive,
   FolderDown,
   FileCheck,
+  Zap,
+  TrendingDown,
+  Gauge,
 } from 'lucide-react';
 import { ToolItem } from '../data/toolsData';
 import { ToolBrandIcon } from './ToolBrandIcon';
@@ -133,8 +136,14 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   const [pdfPassword, setPdfPassword] = useState('');
   const [protectMode, setProtectMode] = useState<'vault-anti-crack' | 'standard-pdf'>('vault-anti-crack');
   const [organizePagesOrder, setOrganizePagesOrder] = useState<number[]>([]);
-  const [compressionLevel, setCompressionLevel] = useState<'low' | 'medium' | 'extreme'>('medium');
   const [includePageSnapshotsInWord, setIncludePageSnapshotsInWord] = useState(true);
+  const [compressionLevel, setCompressionLevel] = useState<
+    'low' | 'medium' | 'extreme' | 'custom'
+  >('medium');
+  const [compressCustomQuality, setCompressCustomQuality] = useState<number>(70);
+  const [compressGrayscale, setCompressGrayscale] = useState<boolean>(false);
+  const [compressDpi, setCompressDpi] = useState<number>(120);
+  const [compressStripMetadata, setCompressStripMetadata] = useState<boolean>(true);
   const [mergeAddPageNumbers, setMergeAddPageNumbers] = useState(false);
   const [pptxMode, setPptxMode] = useState<'editable-smart' | 'hybrid-with-snapshot' | 'visual-exact'>('hybrid-with-snapshot');
   const [pptxTheme, setPptxTheme] = useState<'original-brand' | 'executive-dark' | 'clean-light'>('original-brand');
@@ -296,6 +305,11 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
       setSplitPageRange('1');
       setSplitMode('range');
       setSplitInterval(2);
+      setCompressionLevel('medium');
+      setCompressCustomQuality(70);
+      setCompressGrayscale(false);
+      setCompressDpi(120);
+      setCompressStripMetadata(true);
     } else if (tool.hub === 'image') {
       setIsUsingSampleImage(false);
       setSourceImages([]);
@@ -402,6 +416,10 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
           password: pdfPassword,
           protectMode,
           compressionLevel,
+          compressCustomQuality,
+          compressGrayscale,
+          compressDpi,
+          compressStripMetadata,
           includePageSnapshotsInWord,
           mergeAddPageNumbers,
           pptxMode,
@@ -441,6 +459,10 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     pdfPassword,
     protectMode,
     compressionLevel,
+    compressCustomQuality,
+    compressGrayscale,
+    compressDpi,
+    compressStripMetadata,
     includePageSnapshotsInWord,
     mergeAddPageNumbers,
     pptxMode,
@@ -3128,34 +3150,303 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                     </div>
                   )}
 
-                  {tool.id === 'compress-pdf' && (
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
-                        PDF Compression Preset
-                      </label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {(
-                          [
-                            { id: 'low', label: 'High Quality' },
-                            { id: 'medium', label: 'Balanced' },
-                            { id: 'extreme', label: 'Max Compress' },
-                          ] as const
-                        ).map((preset) => (
-                          <button
-                            key={preset.id}
-                            onClick={() => setCompressionLevel(preset.id)}
-                            className={`py-2 px-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                              compressionLevel === preset.id
-                                ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900'
-                                : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-                            }`}
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
+                  {tool.id === 'compress-pdf' && (() => {
+                    const uploadedFile = pdfFiles[0];
+                    const origBytes = uploadedFile?.bytes?.byteLength || 0;
+                    const formatBytesHuman = (bytes: number) => {
+                      if (!bytes) return '0 بايت';
+                      if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+                      return `${(bytes / 1024).toFixed(1)} KB`;
+                    };
+
+                    const outBytes = pdfResult?.outputBytes?.byteLength || 0;
+                    const savings = pdfResult?.savingsPercentage ?? (
+                      origBytes > outBytes && outBytes > 0
+                        ? Math.max(0, Math.round(((origBytes - outBytes) / origBytes) * 100 * 10) / 10)
+                        : 0
+                    );
+
+                    return (
+                      <div className="space-y-4">
+                        {/* 1. Dedicated Uploaded File Size & Identity Card (حجم الملف الذي تم رفعه) */}
+                        <div className="p-3.5 rounded-2xl bg-gradient-to-br from-rose-50/80 via-white to-slate-50 dark:from-rose-950/30 dark:via-slate-900/60 dark:to-slate-900 border-2 border-rose-500/20 dark:border-rose-500/30 shadow-xs">
+                          <div className="flex items-center justify-between gap-2 mb-2.5">
+                            <div className="flex items-center gap-2 truncate">
+                              <span className="p-1.5 rounded-lg bg-rose-100 dark:bg-rose-900/60 text-rose-600 dark:text-rose-300">
+                                <FileText className="w-4 h-4" />
+                              </span>
+                              <div className="truncate">
+                                <span className="block text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                                  {uploadedFile?.name || 'مستند PDF المرفوع'}
+                                </span>
+                                <span className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                                  {uploadedFile?.pageCount || 1} {uploadedFile?.pageCount === 1 ? 'صفحة' : 'صفحات'}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100/90 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 shrink-0">
+                              ملف أصلي
+                            </span>
+                          </div>
+
+                          {/* File Size Primary Metric Pill */}
+                          <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-white/90 dark:bg-slate-800/90 border border-rose-200/60 dark:border-rose-900/40">
+                            <div>
+                              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                حجم الملف المرفوع:
+                              </span>
+                              <span className="text-base font-extrabold text-slate-900 dark:text-white font-mono" dir="ltr">
+                                {formatBytesHuman(origBytes)}
+                              </span>
+                            </div>
+                            <div className="text-left" dir="ltr">
+                              <span className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                                Exact Bytes:
+                              </span>
+                              <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
+                                {origBytes.toLocaleString()} B
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 2. Live Compression Result & Comparison Card (عند توفر النتيجة) */}
+                        {pdfResult && outBytes > 0 && (
+                          <div className="p-3.5 rounded-2xl bg-gradient-to-br from-emerald-50/70 via-white to-slate-50 dark:from-emerald-950/30 dark:via-slate-900/60 dark:to-slate-900 border border-emerald-500/30 shadow-xs space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                                <TrendingDown className="w-4 h-4 text-emerald-600" />
+                                <span>نتيجة الضغط والتحسين المباشرة:</span>
+                              </span>
+                              {savings > 0 ? (
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-500 text-white shadow-xs">
+                                  -{savings}% 📉
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                                  محسّن بأعلى كفاءة
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Before & After Comparison Cards */}
+                            <div className="grid grid-cols-2 gap-2 text-center">
+                              <div className="p-2 rounded-xl bg-slate-100/80 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
+                                <span className="block text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
+                                  قبل الضغط
+                                </span>
+                                <span className="text-xs font-bold font-mono text-slate-700 dark:text-slate-300">
+                                  {formatBytesHuman(origBytes)}
+                                </span>
+                              </div>
+                              <div className="p-2 rounded-xl bg-emerald-100/60 dark:bg-emerald-950/50 border border-emerald-300/60 dark:border-emerald-800/60">
+                                <span className="block text-[10px] text-emerald-700 dark:text-emerald-300 font-bold">
+                                  بعد الضغط
+                                </span>
+                                <span className="text-xs font-extrabold font-mono text-emerald-700 dark:text-emerald-300">
+                                  {formatBytesHuman(outBytes)}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Visual Progress Bar Ratio */}
+                            <div>
+                              <div className="flex justify-between text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                                <span>نسبة الحجم بعد الضغط</span>
+                                <span>{origBytes > 0 ? Math.min(100, Math.round((outBytes / origBytes) * 100)) : 100}%</span>
+                              </div>
+                              <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                                <div
+                                  className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300"
+                                  style={{
+                                    width: `${origBytes > 0 ? Math.min(100, Math.max(12, Math.round((outBytes / origBytes) * 100))) : 100}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            {savings > 0 && (
+                              <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
+                                ✨ وفرت مساحة قدرها <strong>{formatBytesHuman(origBytes - outBytes)}</strong>، مما يجعل المستند سريع الفتح والإرسال!
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* 3. Compression Options & Presets (خيارات الضغط الممكنة) */}
+                        <div>
+                          <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-2 flex items-center justify-between">
+                            <span className="flex items-center gap-1.5">
+                              <Gauge className="w-3.5 h-3.5 text-rose-600" />
+                              <span>خيارات ومستويات الضغط المتاحة:</span>
+                            </span>
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
+                              اختر الدرجة المناسبة لاستخدامك
+                            </span>
+                          </label>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            {[
+                              {
+                                id: 'extreme' as const,
+                                label: 'ضغط فائق (Max)',
+                                reduction: 'توفير حتى ~75%',
+                                icon: Zap,
+                                color: 'text-amber-500',
+                                desc: 'للإيميل وقيود مواقع التقديم والرفع السريع',
+                              },
+                              {
+                                id: 'medium' as const,
+                                label: 'متوازن (موصى به ⭐)',
+                                reduction: 'توفير حوالي ~50%',
+                                icon: Sparkles,
+                                color: 'text-rose-500',
+                                desc: 'أفضل توازن - وضوح ممتاز للخطوط والصور',
+                              },
+                              {
+                                id: 'low' as const,
+                                label: 'خفيف (High Quality)',
+                                reduction: 'توفير حوالي ~25%',
+                                icon: ShieldCheck,
+                                color: 'text-blue-500',
+                                desc: 'أعلى دقة للمستندات الرسمية والطباعة',
+                              },
+                              {
+                                id: 'custom' as const,
+                                label: 'تخصيص يدوي',
+                                reduction: 'تحكم دقيق',
+                                icon: Sliders,
+                                color: 'text-purple-500',
+                                desc: 'تحديد الجودة ونقاط البوصة (DPI) يدوياً',
+                              },
+                            ].map((preset) => {
+                              const IconComp = preset.icon;
+                              const isSelected = compressionLevel === preset.id;
+                              return (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  onClick={() => setCompressionLevel(preset.id)}
+                                  className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
+                                    isSelected
+                                      ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-500 text-slate-900 dark:text-white shadow-xs ring-1 ring-rose-500'
+                                      : 'bg-white dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 hover:border-rose-300 dark:hover:border-rose-800 text-slate-700 dark:text-slate-300'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between w-full mb-1">
+                                    <div className="flex items-center gap-1.5 font-bold text-xs">
+                                      <IconComp className={`w-3.5 h-3.5 ${preset.color}`} />
+                                      <span>{preset.label}</span>
+                                    </div>
+                                    {isSelected && <Check className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />}
+                                  </div>
+                                  <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 block mb-0.5">
+                                    {preset.reduction}
+                                  </span>
+                                  <span className="text-[9.5px] text-slate-500 dark:text-slate-400 leading-tight block">
+                                    {preset.desc}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* 4. Manual Custom Settings (إذا تم اختيار تخصيص يدوي) */}
+                        {compressionLevel === 'custom' && (
+                          <div className="p-3 rounded-xl bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/50 space-y-3">
+                            <div>
+                              <div className="flex justify-between text-xs font-semibold mb-1 text-slate-800 dark:text-slate-200">
+                                <span>جودة الصور والصفحات:</span>
+                                <span className="font-mono text-purple-600 font-bold">{compressCustomQuality}%</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="20"
+                                max="95"
+                                step="5"
+                                value={compressCustomQuality}
+                                onChange={(e) => setCompressCustomQuality(Number(e.target.value))}
+                                className="w-full accent-purple-600 cursor-pointer"
+                              />
+                              <div className="flex justify-between text-[9.5px] text-slate-500">
+                                <span>20% (أقصى تقليص)</span>
+                                <span>70% (متوازن)</span>
+                                <span>95% (أقصى دقة)</span>
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                                دقة العرض المستهدفة (DPI Resolution):
+                              </label>
+                              <div className="grid grid-cols-3 gap-1.5">
+                                {[
+                                  { dpi: 96, label: '96 DPI (للويب)' },
+                                  { dpi: 120, label: '120 DPI (متوازن)' },
+                                  { dpi: 150, label: '150 DPI (للطباعة)' },
+                                ].map((d) => (
+                                  <button
+                                    key={d.dpi}
+                                    type="button"
+                                    onClick={() => setCompressDpi(d.dpi)}
+                                    className={`py-1 px-2 rounded-lg text-[10.5px] font-bold border transition-colors cursor-pointer ${
+                                      compressDpi === d.dpi
+                                        ? 'bg-purple-600 text-white border-purple-600'
+                                        : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                                    }`}
+                                  >
+                                    {d.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 5. Pro Optimization Toggles (أبيض وأسود وتطهير البيانات) */}
+                        <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-850/60 border border-slate-200 dark:border-slate-700/80 space-y-2.5">
+                          <span className="block text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                            خيارات تحسين إضافية احترافية:
+                          </span>
+
+                          <label className="flex items-start gap-2.5 text-xs text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={compressGrayscale}
+                              onChange={(e) => setCompressGrayscale(e.target.checked)}
+                              className="mt-0.5 accent-rose-600 rounded"
+                            />
+                            <div>
+                              <span className="font-bold text-slate-900 dark:text-white block">
+                                تحويل إلى أبيض وأسود (تدرج الرمادي Grayscale)
+                              </span>
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400 block leading-tight">
+                                تقليص هائل جداً لحجم المستندات النصية والفواتير والكتب بإلغاء قنوات الألوان.
+                              </span>
+                            </div>
+                          </label>
+
+                          <label className="flex items-start gap-2.5 text-xs text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={compressStripMetadata}
+                              onChange={(e) => setCompressStripMetadata(e.target.checked)}
+                              className="mt-0.5 accent-rose-600 rounded"
+                            />
+                            <div>
+                              <span className="font-bold text-slate-900 dark:text-white block">
+                                حذف وتنظيف البيانات الوصفية (Strip Metadata)
+                              </span>
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400 block leading-tight">
+                                إزالة أسماء البرامج، تواريخ التعديل، والملاحظات المخفية لتقليل الحجم وتعزيز الخصوصية.
+                              </span>
+                            </div>
+                          </label>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {tool.id === 'watermark-pdf' && (
                     <>
@@ -5446,6 +5737,8 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                       : splitMode === 'fixed-interval'
                       ? `تنزيل أجزاء المستند المقسمة (${pdfResult?.pageCount || 0} أجزاء) كحزمة ZIP`
                       : `تنزيل ملف PDF المستخرج (${pdfResult?.pageCount || 0} صفحة)`
+                    : tool.id === 'compress-pdf'
+                    ? `تنزيل ملف PDF المضغوط (${pdfResult ? (pdfResult.outputBytes.byteLength >= 1024 * 1024 ? (pdfResult.outputBytes.byteLength / (1024 * 1024)).toFixed(2) + ' MB' : (pdfResult.outputBytes.byteLength / 1024).toFixed(1) + ' KB') : ''}${pdfResult?.savingsPercentage ? ' · وفرت ' + pdfResult.savingsPercentage + '%' : ''})`
                     : tool.id === 'merge-pdf'
                     ? `Merge ${pdfFiles.length} File(s) & Download (${pdfResult?.pageCount || 0} Pages)`
                     : `Download (${pdfResult?.fileName || 'Processed File'})`}
