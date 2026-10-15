@@ -11,12 +11,14 @@
         "@pdfsmaller/pdf-encrypt": "^1.2.0",
         "@pdfsmaller/pdf-encrypt-lite": "^1.2.0",
         "@tailwindcss/vite": "^4.3.3",
+        "@types/jszip": "^3.4.1",
         "@vitejs/plugin-react": "^6.1.1",
         "docx": "^9.9.0",
         "dotenv": "^17.2.3",
         "exceljs": "^4.4.0",
         "express": "^4.21.2",
         "firebase": "^12.19.0",
+        "jszip": "^3.10.2",
         "lucide-react": "^0.546.0",
         "mammoth": "^1.13.0",
         "motion": "^12.23.24",
@@ -370,6 +372,8 @@
     "@types/http-errors": ["@types/http-errors@2.0.5", "", {}, "sha512-r8Tayk8HJnX0FztbZN7oVqGccWgw98T/0neJphO91KkmOzug1KkofZURD4UaD5uH8AqcFLfdPErnBod0u71/qg=="],
 
     "@types/json-schema": ["@types/json-schema@7.0.15", "", {}, "sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA=="],
+
+    "@types/jszip": ["@types/jszip@3.4.1", "", { "dependencies": { "jszip": "*" } }, "sha512-TezXjmf3lj+zQ651r6hPqvSScqBLvyPI9FxdXBqpEwBijNGQ2NXpaFW/7joGzveYkKQUil7iiDHLo6LV71Pc0A=="],
 
     "@types/mime": ["@types/mime@1.3.5", "", {}, "sha512-/pyBZWSLD2n0dcHE3hq8s8ZvcETHtEuF+3E7XVt0Ig2nvsVQXdghHVcEkIWjy9A0wKfTn97a/PSDYohKIlnP/w=="],
 

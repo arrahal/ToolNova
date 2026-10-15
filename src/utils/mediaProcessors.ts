@@ -2,6 +2,7 @@ import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt';
 import { decryptPDF, isEncrypted } from '@pdfsmaller/pdf-decrypt';
 import mammoth from 'mammoth';
+import JSZip from 'jszip';
 import {
   extractRealPdfContent,
   renderPdfPageToCanvas,
@@ -476,6 +477,8 @@ export interface PdfProcessOptions {
   watermarkOpacity?: number;
   rotationDegrees?: number;
   splitPageRange?: string;
+  splitMode?: 'range' | 'each' | 'fixed-interval';
+  splitInterval?: number;
   annotationText?: string;
   pageNumberPosition?:
     | 'bottom-center'
@@ -508,6 +511,7 @@ export interface PdfProcessResult {
   previewText?: string;
   previewHtml?: string;
   isLockedError?: boolean;
+  extraFiles?: { name: string; bytes: Uint8Array; pageCount: number }[];
 }
 
 function uint8ToBase64(bytes: Uint8Array): string {
@@ -618,13 +622,38 @@ export async function checkIfPdfIsToolNovaLocked(
   return { isLocked: false };
 }
 
-function parsePageRange(rangeStr: string, maxPages: number): number[] {
+export function normalizePageRangeString(input: string): string {
+  if (!input) return '';
+  let str = input.trim();
+  // Convert Eastern Arabic (٠-٩) and Persian (۰-۹) numerals to standard ASCII (0-9)
+  const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+  const persianDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+  for (let i = 0; i < 10; i++) {
+    str = str.replaceAll(arabicDigits[i], String(i)).replaceAll(persianDigits[i], String(i));
+  }
+  // Replace Arabic comma '،' (U+060C) and semicolon with standard comma
+  str = str.replace(/[\u060C;]/g, ',');
+  // Replace en-dash, em-dash, and words like 'إلى' / 'to' with hyphen
+  str = str.replace(/[\u2013\u2014]/g, '-').replace(/\s*(?:to|\u0625\u0644\u0649)\s*/gi, '-');
+  return str;
+}
+
+export function parsePageRangeToIndices(rangeStr: string, maxPages: number): number[] {
+  if (maxPages <= 0) return [];
+  const normalized = normalizePageRangeString(rangeStr).toLowerCase();
+
+  if (normalized === 'all' || normalized === 'الكل' || normalized === 'جميع' || normalized === '*') {
+    return Array.from({ length: maxPages }, (_, i) => i);
+  }
+
   const indices: number[] = [];
-  const parts = (rangeStr || '1').split(',').map((s) => s.trim()).filter(Boolean);
+  const parts = normalized.split(',').map((s) => s.trim()).filter(Boolean);
 
   for (const part of parts) {
     if (part.includes('-')) {
-      const [startRaw, endRaw] = part.split('-').map((n) => parseInt(n.trim(), 10));
+      const sub = part.split('-');
+      const startRaw = parseInt(sub[0]?.trim() || '', 10);
+      const endRaw = parseInt(sub[1]?.trim() || '', 10);
       const start = Math.max(1, Math.min(maxPages, isNaN(startRaw) ? 1 : startRaw));
       const end = Math.max(1, Math.min(maxPages, isNaN(endRaw) ? maxPages : endRaw));
       const lo = Math.min(start, end);
@@ -641,7 +670,33 @@ function parsePageRange(rangeStr: string, maxPages: number): number[] {
     }
   }
 
+  indices.sort((a, b) => a - b);
   return indices.length > 0 ? indices : [0];
+}
+
+export function formatIndicesToRangeString(indices: number[]): string {
+  if (!indices || indices.length === 0) return '';
+  const sorted = Array.from(new Set(indices)).sort((a, b) => a - b);
+  const ranges: string[] = [];
+  let start = sorted[0];
+  let prev = start;
+
+  for (let i = 1; i < sorted.length; i++) {
+    const curr = sorted[i];
+    if (curr === prev + 1) {
+      prev = curr;
+    } else {
+      ranges.push(start === prev ? `${start + 1}` : `${start + 1}-${prev + 1}`);
+      start = curr;
+      prev = curr;
+    }
+  }
+  ranges.push(start === prev ? `${start + 1}` : `${start + 1}-${prev + 1}`);
+  return ranges.join(', ');
+}
+
+export function parsePageRange(rangeStr: string, maxPages: number): number[] {
+  return parsePageRangeToIndices(rangeStr, maxPages);
 }
 
 export function isPdfBinaryBuffer(bytes: Uint8Array): boolean {
@@ -1137,21 +1192,123 @@ export async function processPdfAction(
     };
   }
 
-  // ---------------- 5. SPLIT PDF ----------------
+  // ---------------- 5. ADVANCED SPLIT PDF ----------------
   if (toolId === 'split-pdf') {
     const srcDoc = await loadPdfDocumentResilient(firstFile.bytes);
     const total = srcDoc.getPageCount();
-    const indices = parsePageRange(options.splitPageRange || '1', total);
+    const splitMode = options.splitMode || 'range';
+    const indices = parsePageRangeToIndices(options.splitPageRange || '1', total);
+
+    // Mode B: Split into individual 1-page PDF files (or ZIP bundle)
+    if (splitMode === 'each') {
+      const extraFiles: { name: string; bytes: Uint8Array; pageCount: number }[] = [];
+      const zip = new JSZip();
+
+      for (const idx of indices) {
+        const singleDoc = await PDFDocument.create();
+        const [copied] = await singleDoc.copyPages(srcDoc, [idx]);
+        singleDoc.addPage(copied);
+        const singleBytes = await singleDoc.save();
+        const singleName = `${baseName}_Page_${idx + 1}.pdf`;
+        extraFiles.push({
+          name: singleName,
+          bytes: singleBytes,
+          pageCount: 1,
+        });
+        zip.file(singleName, singleBytes);
+      }
+
+      // If user selected only 1 page, output that PDF directly; otherwise output ZIP bundle
+      if (extraFiles.length === 1) {
+        return {
+          outputBytes: extraFiles[0].bytes,
+          fileName: extraFiles[0].name,
+          mimeType: 'application/pdf',
+          pageCount: 1,
+          summary: `تم استخراج الصفحة رقم ${indices[0] + 1} بنجاح كملف PDF مستقل (${(extraFiles[0].bytes.byteLength / 1024).toFixed(1)} KB).`,
+          extraFiles,
+        };
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'uint8array' });
+      return {
+        outputBytes: zipBlob,
+        fileName: `${baseName}_Split_${extraFiles.length}_Pages.zip`,
+        mimeType: 'application/zip',
+        pageCount: extraFiles.length,
+        summary: `تم تقسيم ${extraFiles.length} صفحة كملفات PDF فردية مستقلة داخل حزمة ZIP مضغوطة (${(zipBlob.byteLength / 1024).toFixed(1)} KB).`,
+        extraFiles,
+      };
+    }
+
+    // Mode C: Fixed interval split (e.g. split every N pages)
+    if (splitMode === 'fixed-interval') {
+      const interval = Math.max(1, options.splitInterval || 2);
+      const extraFiles: { name: string; bytes: Uint8Array; pageCount: number }[] = [];
+      const zip = new JSZip();
+
+      let partNum = 1;
+      for (let i = 0; i < indices.length; i += interval) {
+        const chunkIndices = indices.slice(i, i + interval);
+        const partDoc = await PDFDocument.create();
+        const copied = await partDoc.copyPages(srcDoc, chunkIndices);
+        copied.forEach((p) => partDoc.addPage(p));
+        const partBytes = await partDoc.save();
+        const partName = `${baseName}_Part_${partNum}_Pages_${chunkIndices.map((ci) => ci + 1).join('-')}.pdf`;
+        extraFiles.push({
+          name: partName,
+          bytes: partBytes,
+          pageCount: copied.length,
+        });
+        zip.file(partName, partBytes);
+        partNum++;
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'uint8array' });
+      return {
+        outputBytes: zipBlob,
+        fileName: `${baseName}_Split_${extraFiles.length}_Parts.zip`,
+        mimeType: 'application/zip',
+        pageCount: extraFiles.length,
+        summary: `تم تقسيم المستند إلى ${extraFiles.length} أجزاء (كل ${interval} صفحات في ملف مستقل) داخل حزمة ZIP.`,
+        extraFiles,
+      };
+    }
+
+    // Mode A (Default): Extract selected pages into one unified PDF document
     const splitDoc = await PDFDocument.create();
     const copiedPages = await splitDoc.copyPages(srcDoc, indices);
     copiedPages.forEach((p) => splitDoc.addPage(p));
     const out = await splitDoc.save();
+
+    // Also populate extraFiles with single-page extracts for user convenience
+    const extraFiles: { name: string; bytes: Uint8Array; pageCount: number }[] = [];
+    for (const idx of indices) {
+      try {
+        const singleDoc = await PDFDocument.create();
+        const [singleCopied] = await singleDoc.copyPages(srcDoc, [idx]);
+        singleDoc.addPage(singleCopied);
+        const singleBytes = await singleDoc.save();
+        extraFiles.push({
+          name: `${baseName}_Page_${idx + 1}.pdf`,
+          bytes: singleBytes,
+          pageCount: 1,
+        });
+      } catch {
+        // continue
+      }
+    }
+
+    const cleanRange = (options.splitPageRange || '1').replace(/[^0-9-,]/g, '');
+    const pageLabels = indices.map((i) => i + 1).join('، ');
+
     return {
       outputBytes: out,
-      fileName: `${baseName}_Pages_${(options.splitPageRange || '1').replace(/[^0-9-,]/g, '')}.pdf`,
+      fileName: `${baseName}_Pages_${cleanRange || 'Selected'}.pdf`,
       mimeType: 'application/pdf',
       pageCount: copiedPages.length,
-      summary: `Extracted ${copiedPages.length} page(s) [Pages: ${indices.map((i) => i + 1).join(', ')}] from "${firstFile.name}".`,
+      summary: `تم استخراج ${copiedPages.length} صفحة [الصفحات: ${pageLabels}] بنجاح من أصل ${total} صفحة في ملف PDF موحد (${(out.byteLength / 1024).toFixed(1)} KB).`,
+      extraFiles,
     };
   }
 

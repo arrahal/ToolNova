@@ -23,6 +23,12 @@ import {
   Users,
   ShieldCheck,
   KeyRound,
+  Scissors,
+  Check,
+  Layers,
+  Archive,
+  FolderDown,
+  FileCheck,
 } from 'lucide-react';
 import { ToolItem } from '../data/toolsData';
 import { ToolBrandIcon } from './ToolBrandIcon';
@@ -36,6 +42,9 @@ import {
   getPdfPageCount,
   removeBackgroundSmartConnected,
   enhanceImageSmartDehazeAndColor,
+  parsePageRangeToIndices,
+  formatIndicesToRangeString,
+  normalizePageRangeString,
 } from '../utils/mediaProcessors';
 import {
   renderPdfPageToCanvas,
@@ -105,6 +114,8 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   const [watermarkOpacity, setWatermarkOpacity] = useState(0.25);
   const [rotationDegrees, setRotationDegrees] = useState(90);
   const [splitPageRange, setSplitPageRange] = useState('1');
+  const [splitMode, setSplitMode] = useState<'range' | 'each' | 'fixed-interval'>('range');
+  const [splitInterval, setSplitInterval] = useState<number>(2);
   const [annotationText, setAnnotationText] = useState('Approved via ToolNova Local Engine');
   const [pageNumberPosition, setPageNumberPosition] = useState<
     | 'bottom-center'
@@ -283,6 +294,8 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
       setPdfPassword('');
       setOrganizePagesOrder([]);
       setSplitPageRange('1');
+      setSplitMode('range');
+      setSplitInterval(2);
     } else if (tool.hub === 'image') {
       setIsUsingSampleImage(false);
       setSourceImages([]);
@@ -379,6 +392,8 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
           watermarkOpacity,
           rotationDegrees,
           splitPageRange,
+          splitMode,
+          splitInterval,
           annotationText,
           pageNumberPosition,
           pageNumberFormat,
@@ -416,6 +431,8 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     watermarkOpacity,
     rotationDegrees,
     splitPageRange,
+    splitMode,
+    splitInterval,
     annotationText,
     pageNumberPosition,
     pageNumberFormat,
@@ -439,7 +456,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
       !tool ||
       tool.hub !== 'pdf' ||
       !pdfResult ||
-      pdfResult.mimeType !== 'application/pdf'
+      (pdfResult.mimeType !== 'application/pdf' && pdfResult.mimeType !== 'application/zip')
     ) {
       return;
     }
@@ -494,10 +511,14 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
         const bytesToRender =
           tool.id === 'protect-pdf' && pdfFiles[0]
             ? pdfFiles[0].bytes
+            : pdfResult.mimeType === 'application/zip' && pdfResult.extraFiles && pdfResult.extraFiles.length > 0
+            ? (pdfResult.extraFiles[previewPageNum - 1]?.bytes || pdfResult.extraFiles[0].bytes)
             : pdfResult.outputBytes;
+        const pageToRender =
+          pdfResult.mimeType === 'application/zip' ? 1 : previewPageNum;
         const rendered = await renderPdfPageToCanvas(
           bytesToRender,
-          previewPageNum,
+          pageToRender,
           1.45
         );
         if (cancelled || !pdfOutputCanvasRef.current) return;
@@ -518,9 +539,24 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
               18,
               28
             );
+          } else if (pdfResult.mimeType === 'application/zip' && pdfResult.extraFiles) {
+            const currentItem = pdfResult.extraFiles[previewPageNum - 1] || pdfResult.extraFiles[0];
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+            ctx.fillRect(0, 0, targetCanvas.width, 38);
+            ctx.fillStyle = '#34D399';
+            ctx.font = 'bold 13px "Plus Jakarta Sans", sans-serif';
+            ctx.fillText(
+              `✂️ ملف مستقل: ${currentItem?.name || ''} (صفحة ${previewPageNum} من ${pdfResult.extraFiles.length})`,
+              16,
+              24
+            );
           }
         }
-        setPreviewTotalPages(rendered.totalPages);
+        setPreviewTotalPages(
+          pdfResult.mimeType === 'application/zip' && pdfResult.extraFiles
+            ? pdfResult.extraFiles.length
+            : rendered.totalPages
+        );
       } catch {
         // Ignore transient preview render cancellations
       }
@@ -831,6 +867,8 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
         setOrganizePagesOrder(order);
         if (tool.id === 'organize-pdf') {
           setSplitPageRange(order.join(','));
+        } else if (tool.id === 'split-pdf') {
+          setSplitPageRange(loaded[0].pageCount > 1 ? `1-${Math.min(2, loaded[0].pageCount)}` : '1');
         }
       }
     } else {
@@ -844,6 +882,8 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
           setOrganizePagesOrder(order);
           if (tool.id === 'organize-pdf') {
             setSplitPageRange(order.join(','));
+          } else if (tool.id === 'split-pdf') {
+            setSplitPageRange(loaded[0].pageCount > 1 ? `1-${Math.min(2, loaded[0].pageCount)}` : '1');
           }
         }
       }
@@ -877,6 +917,17 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     a.click();
     URL.revokeObjectURL(url);
     onRecordHistory?.(tool.title, pdfResult.summary);
+  };
+
+  const handleDownloadSingleExtraFile = (fileItem: { name: string; bytes: Uint8Array }) => {
+    const blob = new Blob([fileItem.bytes as BlobPart], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileItem.name;
+    a.click();
+    URL.revokeObjectURL(url);
+    onRecordHistory?.(tool.title, `Downloaded extracted single page: ${fileItem.name}`);
   };
 
   const handleImageOrPdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1746,12 +1797,15 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                         />
                       </label>
                     </div>
-                  ) : pdfResult && pdfResult.mimeType === 'application/pdf' ? (
+                  ) : pdfResult && (pdfResult.mimeType === 'application/pdf' || pdfResult.mimeType === 'application/zip') ? (
                     <div className="flex flex-col h-full">
                       {/* Page Navigator Bar */}
                       <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
-                        <span className="font-semibold text-slate-700 dark:text-slate-200">
-                          Live Output PDF Preview ({pdfResult.pageCount} Total Pages)
+                        <span className="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                          {tool.id === 'split-pdf' && <Scissors className="w-3.5 h-3.5 text-rose-600" />}
+                          {tool.id === 'split-pdf'
+                            ? `معاينة الصفحات المقسمة المستخرجة (${previewTotalPages} صفحة)`
+                            : `Live Output PDF Preview (${pdfResult.pageCount} Total Pages)`}
                         </span>
                         <div className="flex items-center gap-2">
                           <button
@@ -1764,7 +1818,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                             <ChevronLeft className="w-3.5 h-3.5" />
                           </button>
                           <span className="font-mono tabular-nums text-xs font-semibold text-slate-800 dark:text-slate-200">
-                            Page {previewPageNum} of {previewTotalPages}
+                            الصفحة {previewPageNum} من {previewTotalPages}
                           </span>
                           <button
                             type="button"
@@ -3163,20 +3217,312 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                     </div>
                   )}
 
-                  {tool.id === 'split-pdf' && (
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                        Pages or Range to Extract (e.g., 1, 1-2, 1,3)
-                      </label>
-                      <input
-                        type="text"
-                        value={splitPageRange}
-                        onChange={(e) => setSplitPageRange(e.target.value)}
-                        placeholder="1-2"
-                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums"
-                      />
-                    </div>
-                  )}
+                  {tool.id === 'split-pdf' && (() => {
+                    const totalSourcePages = pdfFiles[0]?.pageCount || 1;
+                    const selectedIndices = parsePageRangeToIndices(splitPageRange, totalSourcePages);
+                    const selectedCount = selectedIndices.length;
+
+                    const togglePage = (pageNum: number) => {
+                      const idx = pageNum - 1;
+                      let nextIndices: number[];
+                      if (selectedIndices.includes(idx)) {
+                        nextIndices = selectedIndices.filter((i) => i !== idx);
+                      } else {
+                        nextIndices = [...selectedIndices, idx].sort((a, b) => a - b);
+                      }
+                      if (nextIndices.length === 0) {
+                        setSplitPageRange('');
+                      } else {
+                        setSplitPageRange(formatIndicesToRangeString(nextIndices));
+                      }
+                    };
+
+                    const handleSelectAll = () => {
+                      const all = Array.from({ length: totalSourcePages }, (_, i) => i);
+                      setSplitPageRange(formatIndicesToRangeString(all));
+                    };
+
+                    const handleClearAll = () => {
+                      setSplitPageRange('');
+                    };
+
+                    const handleSelectOdd = () => {
+                      const odd = Array.from({ length: totalSourcePages }, (_, i) => i).filter((i) => (i + 1) % 2 !== 0);
+                      setSplitPageRange(formatIndicesToRangeString(odd));
+                    };
+
+                    const handleSelectEven = () => {
+                      const even = Array.from({ length: totalSourcePages }, (_, i) => i).filter((i) => (i + 1) % 2 === 0);
+                      setSplitPageRange(formatIndicesToRangeString(even.length > 0 ? even : [0]));
+                    };
+
+                    const handleSelectFirstHalf = () => {
+                      const half = Math.max(1, Math.ceil(totalSourcePages / 2));
+                      setSplitPageRange(`1-${half}`);
+                    };
+
+                    const handleSelectSecondHalf = () => {
+                      const start = Math.min(totalSourcePages, Math.ceil(totalSourcePages / 2) + 1);
+                      setSplitPageRange(`${start}-${totalSourcePages}`);
+                    };
+
+                    return (
+                      <div className="space-y-4">
+                        {/* Split Mode Selector Tabs */}
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+                            <Scissors className="w-3.5 h-3.5 text-rose-600" />
+                            <span>طريقة تقسيم واستخراج الصفحات (Split Mode)</span>
+                          </label>
+                          <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                            {[
+                              {
+                                id: 'range' as const,
+                                label: 'ملف موحد',
+                                sub: 'استخراج في ملف واحد',
+                              },
+                              {
+                                id: 'each' as const,
+                                label: 'صفحات فردية',
+                                sub: 'كل صفحة في ملف ZIP',
+                              },
+                              {
+                                id: 'fixed-interval' as const,
+                                label: 'تقسيم دوري',
+                                sub: `كل ${splitInterval} صفحات`,
+                              },
+                            ].map((m) => (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => setSplitMode(m.id)}
+                                className={`py-2 px-1.5 rounded-lg text-center transition-all cursor-pointer ${
+                                  splitMode === m.id
+                                    ? 'bg-rose-600 text-white shadow-xs font-bold'
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                }`}
+                              >
+                                <div className="text-[11px] font-bold">{m.label}</div>
+                                <div className={`text-[9.5px] truncate ${splitMode === m.id ? 'text-rose-100' : 'text-slate-500'}`}>
+                                  {m.sub}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Interval Settings if fixed-interval */}
+                        {splitMode === 'fixed-interval' && (
+                          <div className="p-3 rounded-xl bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40">
+                            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
+                              عدد الصفحات في كل جزء منفصل:
+                            </label>
+                            <div className="grid grid-cols-4 gap-1.5">
+                              {[1, 2, 3, 5].map((num) => (
+                                <button
+                                  key={num}
+                                  type="button"
+                                  onClick={() => setSplitInterval(num)}
+                                  className={`py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                                    splitInterval === num
+                                      ? 'bg-rose-600 text-white border-rose-600'
+                                      : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                  }`}
+                                >
+                                  كل {num} {num === 1 ? 'صفحة' : num === 2 ? 'صفحتين' : 'صفحات'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* The Dedicated Page Selection Box (خانة تحديد الصفحات) */}
+                        <div className="p-3.5 rounded-xl border-2 border-rose-500/30 dark:border-rose-500/40 bg-gradient-to-br from-rose-50/30 to-slate-50/40 dark:from-rose-950/20 dark:to-slate-900/40 shadow-xs space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                              <FileCheck className="w-4 h-4 text-rose-600" />
+                              <span>خانة تحديد الصفحات المراد تقسيمها:</span>
+                            </label>
+                            <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60">
+                              {selectedCount} من {totalSourcePages} صفحة
+                            </span>
+                          </div>
+
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={splitPageRange}
+                              onChange={(e) => setSplitPageRange(e.target.value)}
+                              placeholder="مثال: 1, 3, 5-8 أو 1-2"
+                              className="w-full px-3.5 py-2.5 pr-9 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold tracking-wide focus:outline-none focus:ring-2 focus:ring-rose-500/40 focus:border-rose-500 shadow-inner"
+                              dir="ltr"
+                            />
+                            {splitPageRange && (
+                              <button
+                                type="button"
+                                onClick={handleClearAll}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                                title="مسح الحقل"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                            💡 اكتب أرقام الصفحات مفصولة بفواصل، أو استخدم النطاقات بشرطة مثل: <span className="font-mono font-semibold text-rose-600 dark:text-rose-400" dir="ltr">1-3, 5, 8</span> (تدعم الأرقام العربية <strong>١، ٢، ٣</strong> أو الإنجليزية).
+                          </p>
+
+                          {/* Quick Preset Buttons */}
+                          <div>
+                            <div className="text-[10.5px] font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+                              اختصارات سريعة لتحديد الصفحات:
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                onClick={handleSelectAll}
+                                className="px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                              >
+                                جميع الصفحات ({totalSourcePages})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSplitPageRange('1')}
+                                className="px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                              >
+                                الأولى (1)
+                              </button>
+                              {totalSourcePages > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSplitPageRange(String(totalSourcePages))}
+                                  className="px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                                >
+                                  الأخيرة ({totalSourcePages})
+                                </button>
+                              )}
+                              {totalSourcePages > 2 && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={handleSelectOdd}
+                                    className="px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                                  >
+                                    فردية (1, 3, 5...)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={handleSelectEven}
+                                    className="px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                                  >
+                                    زوجية (2, 4, 6...)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={handleSelectFirstHalf}
+                                    className="px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                                  >
+                                    النصف الأول
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={handleSelectSecondHalf}
+                                    className="px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                                  >
+                                    النصف الثاني
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Interactive Visual Page Badges */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                              انقر مباشرة على أرقام الصفحات للاختيار:
+                            </label>
+                            <span className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                              (وردي = محددة للاستخراج)
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 max-h-48 overflow-y-auto pr-1 p-2 rounded-xl bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
+                            {Array.from({ length: totalSourcePages }, (_, idx) => {
+                              const pageNum = idx + 1;
+                              const isSelected = selectedIndices.includes(idx);
+                              return (
+                                <button
+                                  key={pageNum}
+                                  type="button"
+                                  onClick={() => togglePage(pageNum)}
+                                  className={`flex flex-col items-center justify-center p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-rose-600 text-white border-rose-600 shadow-sm scale-[1.02]'
+                                      : 'bg-white dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-rose-400 hover:bg-rose-50/50 dark:hover:bg-rose-950/20'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-1">
+                                    {isSelected ? (
+                                      <Check className="w-3.5 h-3.5" />
+                                    ) : (
+                                      <span className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>ص {pageNum}</span>
+                                  </div>
+                                  <span className={`text-[9px] mt-0.5 ${isSelected ? 'text-rose-100' : 'text-slate-400'}`}>
+                                    {isSelected ? 'محددة ✓' : 'انقر للإضافة'}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Individual Page Direct Download List (if files exist) */}
+                        {pdfResult && pdfResult.extraFiles && pdfResult.extraFiles.length > 0 && (
+                          <div className="p-3 rounded-xl bg-slate-100/70 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                <Archive className="w-3.5 h-3.5 text-rose-600" />
+                                <span>الصفحات المقسمة المستخرجة ({pdfResult.extraFiles.length} ملف):</span>
+                              </span>
+                            </div>
+                            <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                              {pdfResult.extraFiles.map((fileItem, idx) => (
+                                <div
+                                  key={fileItem.name + idx}
+                                  className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs"
+                                >
+                                  <div className="flex items-center gap-2 truncate pr-2">
+                                    <span className="w-5 h-5 rounded bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
+                                      {idx + 1}
+                                    </span>
+                                    <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                                      {fileItem.name}
+                                    </span>
+                                    <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                                      ({(fileItem.bytes.byteLength / 1024).toFixed(1)} KB)
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDownloadSingleExtraFile(fileItem)}
+                                    className="px-2.5 py-1 rounded-md text-[10.5px] font-bold bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 hover:bg-rose-600 hover:text-white transition-colors cursor-pointer shrink-0 flex items-center gap-1"
+                                  >
+                                    <Download className="w-3 h-3" />
+                                    تحميل
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {tool.id === 'organize-pdf' && (
                     <div className="space-y-3">
@@ -5094,6 +5440,12 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                     ? 'أدخل كلمة السر الصحيحة أعلاه لفك القفل والتنزيل'
                     : tool.id === 'protect-pdf'
                     ? `تنزيل ملف PDF المحمي بكلمة السر (${pdfResult?.fileName || 'Protected.pdf'})`
+                    : tool.id === 'split-pdf'
+                    ? splitMode === 'each'
+                      ? `تنزيل جميع الصفحات المقسمة (${pdfResult?.pageCount || 0} ملفات) كحزمة ZIP`
+                      : splitMode === 'fixed-interval'
+                      ? `تنزيل أجزاء المستند المقسمة (${pdfResult?.pageCount || 0} أجزاء) كحزمة ZIP`
+                      : `تنزيل ملف PDF المستخرج (${pdfResult?.pageCount || 0} صفحة)`
                     : tool.id === 'merge-pdf'
                     ? `Merge ${pdfFiles.length} File(s) & Download (${pdfResult?.pageCount || 0} Pages)`
                     : `Download (${pdfResult?.fileName || 'Processed File'})`}
