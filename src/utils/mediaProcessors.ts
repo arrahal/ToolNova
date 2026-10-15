@@ -540,7 +540,7 @@ async function deriveAesGcmKey(password: string, salt: Uint8Array): Promise<Cryp
   return crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
+      salt: salt as BufferSource,
       iterations: 50000,
       hash: 'SHA-256',
     },
@@ -559,9 +559,9 @@ export async function encryptBytesWithPassword(
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveAesGcmKey(password, salt);
   const cipherBuf = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv: iv as BufferSource },
     key,
-    plainBytes
+    plainBytes as BufferSource
   );
   const cipherBytes = new Uint8Array(cipherBuf);
   return `TNOVA_ENC_V1:${uint8ToBase64(salt)}:${uint8ToBase64(iv)}:${uint8ToBase64(cipherBytes)}`;
@@ -580,9 +580,9 @@ export async function decryptBytesWithPassword(
   const cipherBytes = base64ToUint8(parts[3]);
   const key = await deriveAesGcmKey(password, salt);
   const plainBuf = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv: iv as BufferSource },
     key,
-    cipherBytes
+    cipherBytes as BufferSource
   );
   return new Uint8Array(plainBuf);
 }
@@ -722,7 +722,7 @@ export async function loadPdfDocumentResilient(bytes: Uint8Array): Promise<PDFDo
 
   // 3. Try decoding as an Image via browser Image element
   try {
-    const blob = new Blob([bytes]);
+    const blob = new Blob([bytes as BlobPart]);
     const url = URL.createObjectURL(blob);
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image();

@@ -225,6 +225,81 @@
         "time",
         "createdAt"
       ]
+    },
+    "DocumentAccessToken": {
+      "title": "DocumentAccessToken",
+      "description": "Access control and viewer quota record for protected Word, Excel, and PowerPoint files.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique token identifier",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the document owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fileName": {
+          "type": "string",
+          "description": "Name of the protected Office document",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "docType": {
+          "type": "string",
+          "description": "Office document category",
+          "enum": ["word", "excel", "powerpoint"],
+          "maxLength": 20
+        },
+        "passwordHash": {
+          "type": "string",
+          "description": "Hash of the document access password",
+          "minLength": 4,
+          "maxLength": 128
+        },
+        "maxAllowedUsers": {
+          "type": "number",
+          "description": "Maximum number of people allowed to open the document"
+        },
+        "usedCount": {
+          "type": "number",
+          "description": "Current number of people who have accessed the document"
+        },
+        "lockEditingMode": {
+          "type": "string",
+          "description": "Editing restriction policy",
+          "enum": ["full-lock", "read-only-watermark", "form-comments-only"],
+          "maxLength": 32
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the protection token was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the protection token was last updated"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "fileName",
+        "docType",
+        "passwordHash",
+        "maxAllowedUsers",
+        "usedCount",
+        "lockEditingMode",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -251,6 +326,12 @@
         "$ref": "#/entities/ActivityLog"
       },
       "description": "Stores per-user tool execution history logs."
+    },
+    "/documentAccessTokens/{tokenId}": {
+      "schema": {
+        "$ref": "#/entities/DocumentAccessToken"
+      },
+      "description": "Stores password hashes and maximum allowed viewer quotas for protected Word, Excel, and PowerPoint files."
     }
   }
 }

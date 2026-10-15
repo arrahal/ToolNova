@@ -201,6 +201,65 @@ service cloud.firestore {
       data.createdAt is timestamp;
     }
 
+    function isValidDocumentAccessToken(data) {
+      return isSignedIn() &&
+      data.keys().hasAll([
+        'id',
+        'ownerId',
+        'fileName',
+        'docType',
+        'passwordHash',
+        'maxAllowedUsers',
+        'usedCount',
+        'lockEditingMode',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id',
+        'ownerId',
+        'fileName',
+        'docType',
+        'passwordHash',
+        'maxAllowedUsers',
+        'usedCount',
+        'lockEditingMode',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.id is string &&
+      data.id.size() >= 1 &&
+      data.id.size() <= 128 &&
+      data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId is string &&
+      data.ownerId.size() >= 1 &&
+      data.ownerId.size() <= 128 &&
+      data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId == request.auth.uid &&
+      data.fileName is string &&
+      data.fileName.size() >= 1 &&
+      data.fileName.size() <= 180 &&
+      data.docType is string &&
+      data.docType.size() >= 1 &&
+      data.docType.size() <= 20 &&
+      (data.docType == 'word' || data.docType == 'excel' || data.docType == 'powerpoint') &&
+      data.passwordHash is string &&
+      data.passwordHash.size() >= 4 &&
+      data.passwordHash.size() <= 128 &&
+      data.maxAllowedUsers is number &&
+      data.maxAllowedUsers >= 1 &&
+      data.maxAllowedUsers <= 500 &&
+      data.usedCount is number &&
+      data.usedCount >= 0 &&
+      data.usedCount <= data.maxAllowedUsers &&
+      data.lockEditingMode is string &&
+      data.lockEditingMode.size() >= 1 &&
+      data.lockEditingMode.size() <= 32 &&
+      (data.lockEditingMode == 'full-lock' || data.lockEditingMode == 'read-only-watermark' || data.lockEditingMode == 'form-comments-only') &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
     // 4. Collection Match Blocks
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
@@ -336,6 +395,49 @@ service cloud.firestore {
 
       allow delete: if isVerifiedUser() &&
         isValidId(logId) &&
+        existing().ownerId == request.auth.uid;
+    }
+
+    match /documentAccessTokens/{tokenId} {
+      allow get: if isSignedIn() && isValidId(tokenId) && existing().ownerId == request.auth.uid;
+
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+
+      allow create: if isVerifiedUser() &&
+        isValidId(tokenId) &&
+        isValidDocumentAccessToken(incoming()) &&
+        incoming().id == tokenId &&
+        incoming().usedCount == 0 &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+          existsAfter(/databases/$(database)/documents/users/$(request.auth.uid))
+        );
+
+      allow update: if isValidDocumentAccessToken(incoming()) &&
+        isVerifiedUser() &&
+        isValidId(tokenId) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().id == existing().id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().docType == existing().docType &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          // Action 1: Owner updates protection policy / maxAllowedUsers / passwordHash
+          incoming().diff(existing()).affectedKeys().hasOnly(['fileName', 'passwordHash', 'maxAllowedUsers', 'usedCount', 'lockEditingMode', 'updatedAt']) ||
+          // Action 2: Increment viewer quota slot by 1
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['usedCount', 'updatedAt']) &&
+            incoming().usedCount == existing().usedCount + 1 &&
+            incoming().usedCount <= existing().maxAllowedUsers
+          )
+        ) &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+
+      allow delete: if isVerifiedUser() &&
+        isValidId(tokenId) &&
         existing().ownerId == request.auth.uid;
     }
   }

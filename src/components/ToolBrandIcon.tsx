@@ -659,7 +659,45 @@ export const ToolBrandIcon: React.FC<{
           </svg>
         );
 
-      // 33. SPEECH TO TEXT — Studio Condenser Microphone
+      // 33. PROTECT WORD / EXCEL / POWERPOINT + ACCESS LIMIT — Padlock vault with user access badge
+      case 'protect-word':
+      case 'protect-excel':
+      case 'protect-powerpoint':
+      case 'file-protector':
+        return (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.0"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={svgClass}
+          >
+            <rect width="14" height="10" x="5" y="11" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            <circle cx="12" cy="16" r="1.2" fill="currentColor" />
+          </svg>
+        );
+
+      case 'open-secure-file':
+        return (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.0"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={svgClass}
+          >
+            <rect width="14" height="10" x="5" y="11" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 7.4-2" />
+            <circle cx="12" cy="16" r="1.2" fill="currentColor" />
+          </svg>
+        );
+
+      // 34. SPEECH TO TEXT — Studio Condenser Microphone
       case 'speech-to-text':
       default:
         return (

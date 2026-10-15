@@ -19,6 +19,10 @@ import {
   ArrowDown,
   ChevronLeft,
   ChevronRight,
+  Lock,
+  Users,
+  ShieldCheck,
+  KeyRound,
 } from 'lucide-react';
 import { ToolItem } from '../data/toolsData';
 import { ToolBrandIcon } from './ToolBrandIcon';
@@ -58,6 +62,13 @@ import {
   renderPassportIdPhotoSheet,
   renderImageWatermarkAndPrivacyStudio,
   processSmartTextProblemSolver,
+  OfficeProtectionOptions,
+  LocalAccessGateState,
+  registerProtectedOfficeDocument,
+  verifyAndConsumeOfficeAccessSlot,
+  exportProtectedWordDocx,
+  exportProtectedExcelBytes,
+  exportProtectedPowerPointBytes,
 } from '../utils/officeAndTextSuites';
 
 interface ToolWorkspaceModalProps {
@@ -80,7 +91,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
 }) => {
   // ---------------- PDF STATE ----------------
   const [pdfFiles, setPdfFiles] = useState<QueuedPdfFile[]>([]);
-  const [isUsingSamplePdf, setIsUsingSamplePdf] = useState(true);
+  const [isUsingSamplePdf, setIsUsingSamplePdf] = useState(false);
   const [pdfResult, setPdfResult] = useState<PdfProcessResult | null>(null);
   const [pdfProcessing, setPdfProcessing] = useState(false);
 
@@ -108,9 +119,9 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   >('page-of-total');
   const [pageNumberStartAt, setPageNumberStartAt] = useState(1);
   const [pageNumberFontSize, setPageNumberFontSize] = useState(10.5);
-  const [pdfPassword, setPdfPassword] = useState('1234');
+  const [pdfPassword, setPdfPassword] = useState('');
   const [protectMode, setProtectMode] = useState<'vault-anti-crack' | 'standard-pdf'>('vault-anti-crack');
-  const [organizePagesOrder, setOrganizePagesOrder] = useState<number[]>([1]);
+  const [organizePagesOrder, setOrganizePagesOrder] = useState<number[]>([]);
   const [compressionLevel, setCompressionLevel] = useState<'low' | 'medium' | 'extreme'>('medium');
   const [includePageSnapshotsInWord, setIncludePageSnapshotsInWord] = useState(true);
   const [mergeAddPageNumbers, setMergeAddPageNumbers] = useState(false);
@@ -123,7 +134,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   // ---------------- IMAGE STATE ----------------
   const imageCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [sourceImages, setSourceImages] = useState<HTMLCanvasElement[]>([]);
-  const [isUsingSampleImage, setIsUsingSampleImage] = useState(true);
+  const [isUsingSampleImage, setIsUsingSampleImage] = useState(false);
   const [uploadedPdfForImage, setUploadedPdfForImage] = useState<Uint8Array | null>(null);
   const [pdfImagePageNum, setPdfImagePageNum] = useState(1);
   const [pdfImageTotalPages, setPdfImageTotalPages] = useState(1);
@@ -161,10 +172,10 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   const audioCtxRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
-  const [audioTrackName, setAudioTrackName] = useState('ToolNova_Studio_Chord_Loop.wav');
+  const [audioTrackName, setAudioTrackName] = useState('');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [trimStart, setTrimStart] = useState(0);
-  const [trimEnd, setTrimEnd] = useState(5);
+  const [trimEnd, setTrimEnd] = useState(0);
   const [audioSpeed, setAudioSpeed] = useState(1.0);
   const [audioPitchSemitones, setAudioPitchSemitones] = useState(0);
   const [audioGainDb, setAudioGainDb] = useState(0);
@@ -182,29 +193,11 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   const [dictationLang, setDictationLang] = useState<'ar-SA' | 'fr-FR' | 'en-US'>('ar-SA');
   const [transcriptSegments, setTranscriptSegments] = useState<
     { time: string; speaker: string; text: string }[]
-  >([
-    {
-      time: '00:00.000 --> 00:04.200',
-      speaker: 'Speaker 1',
-      text: 'Welcome to ToolNova, your privacy-first media and document toolbox.',
-    },
-    {
-      time: '00:04.200 --> 00:09.150',
-      speaker: 'Speaker 1',
-      text: 'All PDF, image, audio, and video transformations execute locally inside your browser.',
-    },
-    {
-      time: '00:09.150 --> 00:14.800',
-      speaker: 'Speaker 2',
-      text: 'Zero cloud uploads required—export transcripts directly to SRT subtitles or Markdown.',
-    },
-  ]);
+  >([]);
   const [isListeningMic, setIsListeningMic] = useState(false);
 
   // ---------------- WORD, EXCEL, POWERPOINT, TEXT & NEW IMAGE STATES ----------------
-  const [wordRawInput, setWordRawInput] = useState<string>(
-    `# EXECUTIVE PROJECT REPORT\nThis document was copied   from a multi-column PDF where lines were accidentally\nbroken in the middle of sentences   and extra spaces appeared.\n\n# الملخص التنفيذي للمشروع\nتم نسخ هذا النص من ملف PDF   حيث توجد مسافات زائدة   حول علامات الترقيم ، مثل الفاصلة والمنقوطة ؛ وسيقوم مصلح Word بإعادة ترتيب الفقرات وتصدير ملف DOCX احترافي.`
-  );
+  const [wordRawInput, setWordRawInput] = useState<string>('');
   const [wordDocOpts, setWordDocOpts] = useState<WordDoctorOptions>({
     fixBrokenLines: true,
     normalizeSpaces: true,
@@ -213,23 +206,12 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     fontFamily: 'Cairo',
     lineSpacing: 1.5,
   });
-  const [wordMergeQueue, setWordMergeQueue] = useState<WordMergeFileItem[]>([
-    {
-      id: 'w-1',
-      name: 'Chapter_01_Introduction.docx',
-      text: 'This is the first Word document section covering project objectives, scope, and quality control methodology.',
-    },
-    {
-      id: 'w-2',
-      name: 'Chapter_02_Lab_Results.docx',
-      text: 'This is the second Word document section detailing physicochemical parameters (pH, density, conductivity) and QHSE compliance.',
-    },
-  ]);
+  const [wordMergeQueue, setWordMergeQueue] = useState<WordMergeFileItem[]>([]);
   const [wordMergePageBreaks, setWordMergePageBreaks] = useState(true);
   const [wordMergeAddToc, setWordMergeAddToc] = useState(true);
 
   // Excel Studio States
-  const [excelRawGrid, setExcelRawGrid] = useState<SpreadsheetGridData>(SAMPLE_DIRTY_EXCEL_DATA);
+  const [excelRawGrid, setExcelRawGrid] = useState<SpreadsheetGridData>({ headers: [], rows: [] });
   const [excelCleanOpts, setExcelCleanOpts] = useState<ExcelCleanerOptions>({
     removeDuplicateRows: true,
     trimWhitespace: true,
@@ -237,14 +219,12 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     standardizeTextCase: 'title',
     highlightHeaderColor: '10B981',
   });
-  const [csvOrJsonText, setCsvOrJsonText] = useState<string>(
-    `Full Name,Department,City,Score\nArrahal Lahcen,Quality Control,Marrakech,98\nSara Benali,R&D Chemical Lab,Casablanca,94\nYoussef Amrani,Process Engineering,Rabat,91`
-  );
+  const [csvOrJsonText, setCsvOrJsonText] = useState<string>('');
   const [excelExportFormat, setExcelExportFormat] = useState<'xlsx' | 'csv' | 'pdf'>('xlsx');
 
   // PowerPoint Studio States
-  const [pptDeckTitle, setPptDeckTitle] = useState('Industrial Quality & Process Control');
-  const [pptOutlineText, setPptOutlineText] = useState(SAMPLE_PRESENTATION_OUTLINE);
+  const [pptDeckTitle, setPptDeckTitle] = useState('');
+  const [pptOutlineText, setPptOutlineText] = useState('');
   const [pptColorTheme, setPptColorTheme] = useState<'crimson-exec' | 'navy-corporate' | 'minimal-light'>('crimson-exec');
   const [pptHandoutFormat, setPptHandoutFormat] = useState<'docx' | 'pdf'>('docx');
 
@@ -263,9 +243,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   const [imgRedactMode, setImgRedactMode] = useState<'pixelate' | 'blackout'>('pixelate');
 
   // Text & Fixer Studio States
-  const [smartTextInput, setSmartTextInput] = useState<string>(
-    `بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ — مَرْحَباً بِكُمْ فِي مَنْصَّةِ ToolNova لِمُعَالَجَةِ الْمَلَفَّاتِ.\nContact Lead: arrahallahcen17@gmail.com | Tel: +212 618 74 07 71\nSupport Team: support@toolnova.io | Office: +212 524 88 99 00\nContact Lead: arrahallahcen17@gmail.com | Tel: +212 618 74 07 71`
-  );
+  const [smartTextInput, setSmartTextInput] = useState<string>('');
   const [smartTextMode, setSmartTextMode] = useState<
     | 'clean-all'
     | 'remove-duplicate-lines'
@@ -275,121 +253,53 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     | 'number-lines'
   >('remove-arabic-tashkeel');
 
-  // Initialize default sample media when tool opens
+  // ---------------- WORD, EXCEL & POWERPOINT PROTECTION + ACCESS LIMIT STATES ----------------
+  const [officeProtectOpts, setOfficeProtectOpts] = useState<OfficeProtectionOptions>({
+    password: '',
+    maxAccessLimit: 5,
+    lockEditingMode: 'full-lock',
+    expirationHours: 168,
+    stampSecurityCertificate: true,
+    exportEncryptedPdfCopy: false,
+  });
+  const [activeAccessGate, setActiveAccessGate] = useState<LocalAccessGateState | null>(null);
+  const [testVisitorPassword, setTestVisitorPassword] = useState('');
+  const [testVisitorName, setTestVisitorName] = useState('Visitor Device');
+  const [gateSimulationFeedback, setGateSimulationFeedback] = useState<{
+    allowed: boolean;
+    message: string;
+  } | null>(null);
+
+  // Initialize clean empty media state when tool opens (no sample data)
   useEffect(() => {
     if (!tool) return;
 
     if (tool.hub === 'pdf') {
-      setIsUsingSamplePdf(true);
+      setIsUsingSamplePdf(false);
+      setPdfFiles([]);
+      setPdfResult(null);
       setPreviewPageNum(1);
-      setPdfPassword(tool.id === 'protect-pdf' ? 'Lahcen@2026' : '');
-      (async () => {
-        const sample1 = await createSamplePdfBytes('CV_Arrahal_Lahcen', 1);
-        if (tool.id === 'organize-pdf' || tool.id === 'page-numbers-pdf' || tool.id === 'split-pdf') {
-          // Build a 2-page sample PDF so page numbering, splitting, and reordering are immediately demonstrable
-          const sample2 = await createSamplePdfBytes('Document_Part_2', 2);
-          const mergedDemo = await processPdfAction(
-            [
-              { name: 'Page_1.pdf', bytes: sample1 },
-              { name: 'Page_2.pdf', bytes: sample2 },
-            ],
-            { toolId: 'merge-pdf' }
-          );
-          setOrganizePagesOrder([1, 2]);
-          setSplitPageRange(tool.id === 'organize-pdf' ? '1,2' : '1-2');
-          setPdfFiles([
-            {
-              id: 'sample-multi',
-              name: 'CV_Arrahal_Lahcen_2Pages.pdf',
-              bytes: mergedDemo.outputBytes,
-              pageCount: 2,
-            },
-          ]);
-          return;
-        }
-
-        setOrganizePagesOrder([1]);
-        setSplitPageRange('1');
-        const initialList: QueuedPdfFile[] = [
-          {
-            id: 'sample-1',
-            name: 'CV_Arrahal_Lahcen.pdf',
-            bytes: sample1,
-            pageCount: 1,
-          },
-        ];
-        if (tool.id === 'merge-pdf') {
-          const sample2 = await createSamplePdfBytes('Document_Part_2', 2);
-          initialList.push({
-            id: 'sample-2',
-            name: 'Demo_Document_Part_2.pdf',
-            bytes: sample2,
-            pageCount: 1,
-          });
-        }
-        setPdfFiles(initialList);
-      })();
+      setPreviewTotalPages(1);
+      setPdfPassword('');
+      setOrganizePagesOrder([]);
+      setSplitPageRange('1');
     } else if (tool.hub === 'image') {
-      setIsUsingSampleImage(true);
+      setIsUsingSampleImage(false);
+      setSourceImages([]);
       setUploadedPdfForImage(null);
       setPdfImagePageNum(1);
       setPdfImageTotalPages(1);
       setCropZoom(100);
       setCropOffsetX(0);
       setCropOffsetY(0);
-
-      if (tool.id === 'pdf-to-jpg') {
-        (async () => {
-          const samplePdf = await createSamplePdfBytes('ToolNova_Sample_Report', 1);
-          setUploadedPdfForImage(samplePdf);
-          const rendered = await renderPdfPageToCanvas(samplePdf, 1, 1.5);
-          setPdfImageTotalPages(rendered.totalPages);
-          setSourceImages([rendered.canvas]);
-          setImgWidth(rendered.canvas.width);
-          setImgHeight(rendered.canvas.height);
-          setExportFormat('image/jpeg');
-        })();
-      } else {
-        const c1 = createSampleImageCanvas(1, tool.id);
-        const c2 = createSampleImageCanvas(2, tool.id);
-        setSourceImages(tool.id === 'combine-images' ? [c1, c2] : [c1]);
-        setImgWidth(800);
-        setImgHeight(600);
-        setAspectPreset('free');
-        setBrightness(100);
-        setContrast(100);
-        setSaturation(100);
-        setSepia(0);
-        setHueRotate(0);
-        setShowOriginalCompare(false);
-        setDehazeStrength(65);
-        setColorHarmony(60);
-        setSharpenStrength(55);
-        setDenoiseStrength(25);
-        setBgTolerance(36);
-        setBgEdgeFeather(2);
-        setBgProtectSubject(true);
-        setBgReplacement('transparent');
-        setBgRemoveEnabled(tool.id === 'background-remover');
-        setExportFormat(
-          tool.id === 'background-remover'
-            ? 'image/png'
-            : tool.id === 'format-converter'
-            ? 'image/webp'
-            : 'image/jpeg'
-        );
-      }
+      setShowOriginalCompare(false);
+      setBgRemoveEnabled(tool.id === 'background-remover');
     } else if (tool.hub === 'audio') {
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new AudioContextClass();
-      audioCtxRef.current = ctx;
-      const buf = createSampleAudioBuffer(ctx, 5);
-      setAudioBuffer(buf);
-      setAudioTrackName('ToolNova_Studio_Chord_Loop.wav');
+      setAudioBuffer(null);
+      setAudioTrackName('');
+      setIsPlayingAudio(false);
       setTrimStart(0);
-      setTrimEnd(Number(buf.duration.toFixed(2)));
+      setTrimEnd(0);
       setAudioSpeed(1.0);
       setAudioPitchSemitones(0);
       setAudioGainDb(tool.id === 'volume-booster' ? 4.5 : 0);
@@ -399,12 +309,29 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
         uploadedVideoElRef.current.pause();
         uploadedVideoElRef.current.removeAttribute('src');
       }
+      setTranscriptSegments([]);
     } else if (tool.hub === 'text') {
+      setSmartTextInput('');
       setSmartTextMode(
         tool.id === 'data-extractor-studio'
           ? 'extract-emails-phones'
           : 'remove-arabic-tashkeel'
       );
+    } else if (tool.hub === 'word') {
+      setWordRawInput('');
+      setWordMergeQueue([]);
+      setActiveAccessGate(null);
+      setGateSimulationFeedback(null);
+    } else if (tool.hub === 'excel') {
+      setExcelRawGrid({ headers: [], rows: [] });
+      setCsvOrJsonText('');
+      setActiveAccessGate(null);
+      setGateSimulationFeedback(null);
+    } else if (tool.hub === 'powerpoint') {
+      setPptDeckTitle('');
+      setPptOutlineText('');
+      setActiveAccessGate(null);
+      setGateSimulationFeedback(null);
     }
 
     return () => {
@@ -942,7 +869,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
 
   const handleDownloadPdfResult = () => {
     if (!pdfResult) return;
-    const blob = new Blob([pdfResult.outputBytes], { type: pdfResult.mimeType });
+    const blob = new Blob([pdfResult.outputBytes as BlobPart], { type: pdfResult.mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -1325,9 +1252,18 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    if (tool.id === 'word-format-doctor') {
+    if (tool.id === 'word-format-doctor' || tool.id === 'protect-word') {
       const text = await extractTextFromDocxOrTextFile(files[0]);
       setWordRawInput(text);
+      if (tool.id === 'protect-word') {
+        const gate = registerProtectedOfficeDocument(
+          files[0].name,
+          'word',
+          officeProtectOpts
+        );
+        setActiveAccessGate(gate);
+        setGateSimulationFeedback(null);
+      }
     } else if (tool.id === 'merge-word-docs') {
       const added: WordMergeFileItem[] = [];
       for (const f of Array.from(files)) {
@@ -1343,14 +1279,81 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     e.target.value = '';
   };
 
+  const handleSimulateOfficeAccessSlot = () => {
+    if (!activeAccessGate) return;
+    const res = verifyAndConsumeOfficeAccessSlot(
+      activeAccessGate.tokenId,
+      testVisitorPassword,
+      testVisitorName || 'Authorized Viewer'
+    );
+    if (res.updatedState) {
+      setActiveAccessGate({ ...res.updatedState });
+    }
+    setGateSimulationFeedback({
+      allowed: res.allowed,
+      message: res.reason,
+    });
+  };
+
+  const handleResetOfficeAccessQuota = () => {
+    if (!tool) return;
+    const docType =
+      tool.id === 'protect-word'
+        ? 'word'
+        : tool.id === 'protect-excel'
+        ? 'excel'
+        : 'powerpoint';
+    const fileName =
+      activeAccessGate?.fileName ||
+      (docType === 'word'
+        ? 'Protected_Document.docx'
+        : docType === 'excel'
+        ? 'Protected_Workbook.xlsx'
+        : 'Protected_Presentation.pptx');
+    const gate = registerProtectedOfficeDocument(fileName, docType, officeProtectOpts);
+    setActiveAccessGate(gate);
+    setTestVisitorPassword(officeProtectOpts.password);
+    setGateSimulationFeedback({
+      allowed: true,
+      message: `تم تحديث قفل الملف وإعادة ضبط عداد الزوار إلى (0 / ${officeProtectOpts.maxAccessLimit}).`,
+    });
+  };
+
   const handleDownloadWordOutput = async () => {
+    if (tool.id === 'protect-word') {
+      const gate =
+        activeAccessGate ||
+        registerProtectedOfficeDocument('Protected_Word_Document.docx', 'word', officeProtectOpts);
+      setActiveAccessGate(gate);
+      const bytes = await exportProtectedWordDocx(
+        'Protected Confidential Word Document',
+        wordDoctorPreview.cleanedText,
+        officeProtectOpts,
+        gate.tokenId
+      );
+      const blob = new Blob([bytes as BlobPart], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ToolNova_Protected_${gate.tokenId}_Max${officeProtectOpts.maxAccessLimit}Users.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      onRecordHistory?.(
+        tool.title,
+        `Locked Word (.DOCX) · Token ${gate.tokenId} · Max ${officeProtectOpts.maxAccessLimit} allowed viewers`
+      );
+      return;
+    }
+
     if (tool.id === 'word-format-doctor') {
       const bytes = await exportStructuredWordDocx(
         'ToolNova Repaired Word Document',
         wordDoctorPreview.cleanedText,
         wordDocOpts
       );
-      const blob = new Blob([bytes], {
+      const blob = new Blob([bytes as BlobPart], {
         type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       });
       const url = URL.createObjectURL(blob);
@@ -1369,7 +1372,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
         wordMergePageBreaks,
         wordMergeAddToc
       );
-      const blob = new Blob([bytes], {
+      const blob = new Blob([bytes as BlobPart], {
         type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       });
       const url = URL.createObjectURL(blob);
@@ -1394,15 +1397,46 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     } else {
       const parsed = await parseUploadedExcelOrCsv(file);
       setExcelRawGrid(parsed);
+      if (tool.id === 'protect-excel') {
+        const gate = registerProtectedOfficeDocument(file.name, 'excel', officeProtectOpts);
+        setActiveAccessGate(gate);
+        setGateSimulationFeedback(null);
+      }
     }
     e.target.value = '';
   };
 
   const handleDownloadExcelOutput = async () => {
     const grid = excelCleanedResult.cleaned;
+    if (tool.id === 'protect-excel') {
+      const gate =
+        activeAccessGate ||
+        registerProtectedOfficeDocument('Protected_Workbook.xlsx', 'excel', officeProtectOpts);
+      setActiveAccessGate(gate);
+      const protectedBytes = await exportProtectedExcelBytes(
+        grid,
+        officeProtectOpts,
+        gate.tokenId
+      );
+      const blob = new Blob([protectedBytes as BlobPart], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ToolNova_Protected_${gate.tokenId}_Max${officeProtectOpts.maxAccessLimit}Users.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      onRecordHistory?.(
+        tool.title,
+        `Locked Excel (.XLSX) with password & Max ${officeProtectOpts.maxAccessLimit} viewers (${gate.tokenId})`
+      );
+      return;
+    }
+
     if (excelExportFormat === 'pdf') {
       const pdfBytes = await exportGridToPdfBytes(grid, 'ToolNova Excel Data Report');
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1434,7 +1468,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
       'Cleaned Data',
       excelCleanOpts.highlightHeaderColor
     );
-    const blob = new Blob([xlsxBytes], {
+    const blob = new Blob([xlsxBytes as BlobPart], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
     const url = URL.createObjectURL(blob);
@@ -1450,13 +1484,44 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   };
 
   const handleDownloadPowerPointOutput = async () => {
+    if (tool.id === 'protect-powerpoint') {
+      const gate =
+        activeAccessGate ||
+        registerProtectedOfficeDocument(
+          `${pptDeckTitle}.pptx`,
+          'powerpoint',
+          officeProtectOpts
+        );
+      setActiveAccessGate(gate);
+      const bytes = await exportProtectedPowerPointBytes(
+        pptDeckTitle,
+        pptSlidesPreview,
+        officeProtectOpts,
+        gate.tokenId
+      );
+      const blob = new Blob([bytes as BlobPart], {
+        type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ToolNova_Protected_${gate.tokenId}_Max${officeProtectOpts.maxAccessLimit}Users.pptx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      onRecordHistory?.(
+        tool.title,
+        `Locked PowerPoint (.PPTX) · Token ${gate.tokenId} · Max ${officeProtectOpts.maxAccessLimit} viewers`
+      );
+      return;
+    }
+
     if (tool.id === 'ppt-slide-generator') {
       const bytes = await generatePptxFromOutline(
         pptDeckTitle,
         pptSlidesPreview,
         pptColorTheme
       );
-      const blob = new Blob([bytes], {
+      const blob = new Blob([bytes as BlobPart], {
         type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       });
       const url = URL.createObjectURL(blob);
@@ -1491,7 +1556,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
             lineSpacing: 1.5,
           }
         );
-        const blob = new Blob([bytes], {
+        const blob = new Blob([bytes as BlobPart], {
           type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         });
         const url = URL.createObjectURL(blob);
@@ -1511,7 +1576,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
           ]),
         };
         const pdfBytes = await exportGridToPdfBytes(grid, `${pptDeckTitle} — Handout`);
-        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -1533,7 +1598,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
         fontFamily: 'Cairo',
         lineSpacing: 1.5,
       }).then((bytes) => {
-        const blob = new Blob([bytes], {
+        const blob = new Blob([bytes as BlobPart], {
           type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         });
         const url = URL.createObjectURL(blob);
@@ -1603,8 +1668,8 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
               <div className="flex flex-col h-full gap-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    {isUsingSamplePdf
-                      ? 'Demo Mode Active — Upload your PDF file(s) to start'
+                    {pdfFiles.length === 0
+                      ? 'في انتظار رفع الملف (Ready for upload)'
                       : `Active Files (${pdfFiles.length} file${pdfFiles.length === 1 ? '' : 's'})`}
                   </span>
 
@@ -1612,7 +1677,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                     <label className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-2xs transition-colors">
                       <Plus className="w-3.5 h-3.5" />
                       {tool.id === 'merge-pdf'
-                        ? isUsingSamplePdf
+                        ? pdfFiles.length === 0
                           ? 'Select PDF Files to Merge'
                           : 'Add Another PDF File'
                         : tool.id === 'word-to-pdf'
@@ -1632,7 +1697,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                 </div>
 
                 {/* Helpful prompt when user only uploaded 1 file in Merge PDF */}
-                {tool.id === 'merge-pdf' && !isUsingSamplePdf && pdfFiles.length === 1 && (
+                {tool.id === 'merge-pdf' && pdfFiles.length === 1 && (
                   <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 flex items-center justify-between gap-3">
                     <div className="text-xs text-amber-900 dark:text-amber-200">
                       <strong>1 PDF uploaded ({pdfFiles[0].name}).</strong> Click the button on the right to add a 2nd PDF file to merge with it!
@@ -1659,17 +1724,19 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                       Processing PDF pages locally via PDF.js + pdf-lib...
                     </div>
                   ) : pdfFiles.length === 0 ? (
-                    <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-                      <Upload className="w-8 h-8 text-slate-400 mb-2" />
-                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                        No PDF files in queue
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50/50 dark:bg-slate-900/40">
+                      <div className="w-14 h-14 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 flex items-center justify-center mb-3 shadow-xs">
+                        <Upload className="w-7 h-7" />
+                      </div>
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-1">
+                        لا يوجد ملف PDF مفتوح حالياً
                       </p>
-                      <p className="text-xs text-slate-500 mb-4">
-                        Select 2 or more PDF files to merge them in your preferred order.
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 max-w-sm">
+                        اختر أو اسحب ملف PDF من جهازك لبدء المعالجة، القفل، أو التحويل فوراً بأمان داخل متصفحك.
                       </p>
-                      <label className="cursor-pointer inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-rose-600 text-white">
+                      <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition-colors">
                         <Plus className="w-4 h-4" />
-                        Select PDF Files
+                        {isMultiFilePdfTool ? 'اختيار ملفات PDF' : 'اختيار ملف PDF'}
                         <input
                           type="file"
                           accept={pdfInputAccept}
@@ -1811,29 +1878,40 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                         className="hidden"
                       />
                     </label>
-                    {tool.id === 'combine-images' && (
-                      <button
-                        onClick={() =>
-                          setSourceImages((prev) => [
-                            ...prev,
-                            createSampleImageCanvas(((prev.length % 2) + 1) as 1 | 2),
-                          ])
-                        }
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 text-white dark:bg-white dark:text-slate-900 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        Add Sample Layer
-                      </button>
-                    )}
                   </div>
                 </div>
 
-                <div className="flex-1 min-h-[320px] rounded-xl border border-slate-200 dark:border-slate-800 bg-checkerboard flex items-center justify-center p-4 overflow-hidden">
-                  <canvas
-                    ref={imageCanvasRef}
-                    className="max-w-full max-h-[310px] object-contain rounded-lg shadow-md"
-                  />
-                </div>
+                {sourceImages.length === 0 ? (
+                  <div className="flex-1 min-h-[320px] rounded-xl border border-dashed border-slate-300 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col items-center justify-center p-8 text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 flex items-center justify-center mb-3 shadow-xs">
+                      <Upload className="w-7 h-7" />
+                    </div>
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      لا توجد صورة مفتوحة حالياً (Ready for Image)
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 max-w-sm">
+                      قم برفع صورة للبدء في المعالجة والتحسين والتحويل فوراً داخل متصفحك بأمان.
+                    </p>
+                    <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition-colors">
+                      <Plus className="w-4 h-4" />
+                      {tool.id === 'pdf-to-jpg' ? 'اختيار ملف PDF أو صورة' : 'اختيار صورة من جهازك'}
+                      <input
+                        type="file"
+                        accept={tool.id === 'pdf-to-jpg' ? '.pdf,image/*' : 'image/*'}
+                        multiple={tool.id === 'combine-images'}
+                        onChange={handleImageOrPdfUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="flex-1 min-h-[320px] rounded-xl border border-slate-200 dark:border-slate-800 bg-checkerboard flex items-center justify-center p-4 overflow-hidden">
+                    <canvas
+                      ref={imageCanvasRef}
+                      className="max-w-full max-h-[310px] object-contain rounded-lg shadow-md"
+                    />
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
                   <span>
@@ -1854,7 +1932,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
               <div className="flex flex-col h-full gap-4">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Track: {audioTrackName}
+                    {audioTrackName ? `Track: ${audioTrackName}` : 'في انتظار ملف صوتي (No audio loaded)'}
                   </span>
                   <label className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition-colors">
                     <Upload className="w-3.5 h-3.5" />
@@ -1868,22 +1946,45 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                   </label>
                 </div>
 
-                <div className="flex-1 min-h-[240px] rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-900 p-4 flex flex-col justify-between">
-                  <div className="flex items-center justify-between text-xs text-slate-400 font-mono tabular-nums">
-                    <span>
-                      Trim: {trimStart.toFixed(2)}s — {trimEnd.toFixed(2)}s
-                    </span>
-                    <span>
-                      Speed: {audioSpeed.toFixed(2)}x · Gain: +{audioGainDb.toFixed(1)} dB
-                    </span>
+                {!audioBuffer ? (
+                  <div className="flex-1 min-h-[240px] rounded-xl border border-dashed border-slate-300 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col items-center justify-center p-6 text-center">
+                    <div className="w-12 h-12 rounded-2xl bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 flex items-center justify-center mb-2.5 shadow-xs">
+                      <Volume2 className="w-6 h-6" />
+                    </div>
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      لا يوجد ملف صوتي مفتوح حالياً
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3 max-w-xs">
+                      قم برفع ملف صوتي أو فيديو (MP3, WAV, M4A, MP4) للقص وتعديل الصوت والسرعة.
+                    </p>
+                    <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm transition-colors">
+                      <Upload className="w-4 h-4" />
+                      اختيار ملف صوتي
+                      <input
+                        type="file"
+                        accept="audio/*,video/*"
+                        onChange={handleAudioUpload}
+                        className="hidden"
+                      />
+                    </label>
                   </div>
+                ) : (
+                  <div className="flex-1 min-h-[240px] rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-900 p-4 flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-xs text-slate-400 font-mono tabular-nums">
+                      <span>
+                        Trim: {trimStart.toFixed(2)}s — {trimEnd.toFixed(2)}s
+                      </span>
+                      <span>
+                        Speed: {audioSpeed.toFixed(2)}x · Gain: +{audioGainDb.toFixed(1)} dB
+                      </span>
+                    </div>
 
-                  <canvas
-                    ref={waveformCanvasRef}
-                    width={540}
-                    height={160}
-                    className="w-full h-40 rounded-lg my-2"
-                  />
+                    <canvas
+                      ref={waveformCanvasRef}
+                      width={540}
+                      height={160}
+                      className="w-full h-40 rounded-lg my-2"
+                    />
 
                   <div className="flex items-center justify-between">
                     <button
@@ -1907,6 +2008,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                     </span>
                   </div>
                 </div>
+                )}
               </div>
             )}
 
@@ -1947,30 +2049,42 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                       </div>
                     </div>
                     <div className="flex-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3 overflow-y-auto max-h-[330px]">
-                      {transcriptSegments.map((seg, idx) => (
-                        <div
-                          key={idx}
-                          className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60"
-                        >
-                          <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400 mb-1">
-                            <span>{seg.time}</span>
-                            <span>{seg.speaker}</span>
-                          </div>
-                          <input
-                            type="text"
-                            value={seg.text}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setTranscriptSegments((prev) =>
-                                prev.map((item, i) =>
-                                  i === idx ? { ...item, text: val } : item
-                                )
-                              );
-                            }}
-                            className="w-full text-xs text-slate-900 dark:text-slate-100 bg-transparent focus:outline-none"
-                          />
+                      {transcriptSegments.length === 0 ? (
+                        <div className="h-full min-h-[250px] flex flex-col items-center justify-center p-6 text-center">
+                          <Mic className="w-10 h-10 text-rose-500/70 mb-2" />
+                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                            لا يوجد تفريغ صوتي بعد
+                          </p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs">
+                            اضغط على &apos;Dictate Live&apos; أعلاه للتحدث بالميكروفون وتفريغ الصوت في الحال.
+                          </p>
                         </div>
-                      ))}
+                      ) : (
+                        transcriptSegments.map((seg, idx) => (
+                          <div
+                            key={idx}
+                            className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60"
+                          >
+                            <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400 mb-1">
+                              <span>{seg.time}</span>
+                              <span>{seg.speaker}</span>
+                            </div>
+                            <input
+                              type="text"
+                              value={seg.text}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setTranscriptSegments((prev) =>
+                                  prev.map((item, i) =>
+                                    i === idx ? { ...item, text: val } : item
+                                  )
+                                );
+                              }}
+                              className="w-full text-xs text-slate-900 dark:text-slate-100 bg-transparent focus:outline-none"
+                            />
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -1980,7 +2094,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                         <Film className="w-3.5 h-3.5" />
                         {uploadedVideoName
                           ? `Video: ${uploadedVideoName}`
-                          : 'Live Frame Buffer (Upload MP4/WebM or test demo)'}
+                          : 'في انتظار رفع الفيديو (No video loaded)'}
                       </span>
                       <label className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition-colors">
                         <Upload className="w-3.5 h-3.5" />
@@ -1994,12 +2108,34 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                       </label>
                     </div>
                     <div className="flex-1 min-h-[280px] rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-950 flex items-center justify-center overflow-hidden">
-                      <canvas
-                        ref={videoPreviewCanvasRef}
-                        width={520}
-                        height={292}
-                        className="w-full h-full object-cover"
-                      />
+                      {uploadedVideoName ? (
+                        <canvas
+                          ref={videoPreviewCanvasRef}
+                          width={520}
+                          height={292}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center p-6 text-center">
+                          <Film className="w-12 h-12 text-slate-700 mb-2.5" />
+                          <p className="text-sm font-bold text-slate-300 mb-1">
+                            لا يوجد مقطع فيديو مفتوح حالياً
+                          </p>
+                          <p className="text-xs text-slate-500 max-w-xs mb-3">
+                            ارفع ملف فيديو (MP4, WebM) للبدء في المعاينة وضغط الحجم أو استخراج صور GIF.
+                          </p>
+                          <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition-colors">
+                            <Upload className="w-4 h-4" />
+                            اختيار مقطع فيديو
+                            <input
+                              type="file"
+                              accept="video/*"
+                              onChange={handleVideoFileUpload}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -2010,16 +2146,23 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
             {tool.hub === 'word' && (
               <div className="flex flex-col h-full gap-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    {tool.id === 'word-format-doctor'
-                      ? 'إصلاح وتنسيق نصوص ومستندات Word (.DOCX)'
-                      : `دمج ملفات Word (${wordMergeQueue.length} ملفات في القائمة)`}
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    {tool.id === 'protect-word' ? (
+                      <>
+                        <Lock className="w-3.5 h-3.5 text-blue-600" />
+                        <span>حماية وقفل مستند Word (.DOCX) + تحديد عدد الأشخاص المسموح لهم بالدخول</span>
+                      </>
+                    ) : tool.id === 'word-format-doctor' ? (
+                      'إصلاح وتنسيق نصوص ومستندات Word (.DOCX)'
+                    ) : (
+                      `دمج ملفات Word (${wordMergeQueue.length} ملفات في القائمة)`
+                    )}
                   </span>
                   <label className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition-colors">
                     <Upload className="w-3.5 h-3.5" />
-                    {tool.id === 'word-format-doctor'
-                      ? 'رفع ملف Word (.DOCX) أو نص'
-                      : '+ إضافة ملفات Word (.DOCX)'}
+                    {tool.id === 'merge-word-docs'
+                      ? '+ إضافة ملفات Word (.DOCX)'
+                      : 'رفع ملف Word (.DOCX) أو نص'}
                     <input
                       type="file"
                       accept=".docx,.txt,.md"
@@ -2030,30 +2173,149 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                   </label>
                 </div>
 
-                {tool.id === 'word-format-doctor' ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-[340px]">
+                {tool.id === 'protect-word' && activeAccessGate && (
+                  <div className="p-3.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/70 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white text-[10.5px] font-mono font-bold">
+                          {activeAccessGate.tokenId}
+                        </span>
+                        <span className="text-xs font-extrabold text-slate-900 dark:text-white">
+                          بوابة التحكم في عدد الأشخاص المسموح لهم بفتح ملف Word
+                        </span>
+                      </div>
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                          activeAccessGate.usedCount >= officeProtectOpts.maxAccessLimit
+                            ? 'bg-rose-100 text-rose-700 border border-rose-300'
+                            : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        }`}
+                      >
+                        المقاعد المستخدمة: {activeAccessGate.usedCount} / {officeProtectOpts.maxAccessLimit} أشخاص
+                      </span>
+                    </div>
+
+                    <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          activeAccessGate.usedCount >= officeProtectOpts.maxAccessLimit
+                            ? 'bg-rose-600'
+                            : 'bg-blue-600'
+                        }`}
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (activeAccessGate.usedCount /
+                              Math.max(1, officeProtectOpts.maxAccessLimit)) *
+                              100
+                          )}%`,
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <input
+                        type="text"
+                        value={testVisitorName}
+                        onChange={(e) => setTestVisitorName(e.target.value)}
+                        placeholder="اسم الزائر / الجهاز"
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs w-36"
+                      />
+                      <input
+                        type="text"
+                        value={testVisitorPassword}
+                        onChange={(e) => setTestVisitorPassword(e.target.value)}
+                        placeholder="أدخل كلمة السر للتجربة"
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono w-32"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSimulateOfficeAccessSlot}
+                        className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer"
+                      >
+                        تجربة دخول شخص للملف
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResetOfficeAccessQuota}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-semibold cursor-pointer"
+                      >
+                        إعادة تصفير العداد
+                      </button>
+                    </div>
+
+                    {gateSimulationFeedback && (
+                      <div
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
+                          gateSimulationFeedback.allowed
+                            ? 'bg-emerald-100/90 text-emerald-900 border border-emerald-300'
+                            : 'bg-rose-100/90 text-rose-900 border border-rose-300'
+                        }`}
+                      >
+                        {gateSimulationFeedback.message}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {tool.id === 'word-format-doctor' || tool.id === 'protect-word' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-[300px]">
                     <div className="flex flex-col rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
                       <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
-                        النص الأصلي (قبل الإصلاح / منسوخ من PDF)
+                        {tool.id === 'protect-word'
+                          ? 'محتوى مستند Word المراد قفله وحمايته'
+                          : 'النص الأصلي (قبل الإصلاح / منسوخ من PDF)'}
                       </div>
                       <textarea
                         value={wordRawInput}
                         onChange={(e) => setWordRawInput(e.target.value)}
                         className="flex-1 p-3 text-xs bg-transparent text-slate-800 dark:text-slate-200 focus:outline-none resize-none leading-relaxed"
-                        placeholder="الصق النص المتقطع أو ارفع ملف DOCX..."
+                        placeholder="الصق النص أو ارفع ملف DOCX..."
                       />
                     </div>
                     <div className="flex flex-col rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/20 dark:bg-slate-900 overflow-hidden">
                       <div className="px-3 py-2 bg-blue-600 text-white text-[11px] font-bold flex items-center justify-between">
-                        <span>معاينة مستند Word بعد الإصلاح التلقائي</span>
+                        <span>
+                          {tool.id === 'protect-word'
+                            ? `معاينة المستند المحمي (الحد الأقصى: ${officeProtectOpts.maxAccessLimit} أشخاص)`
+                            : 'معاينة مستند Word بعد الإصلاح التلقائي'}
+                        </span>
                         <span className="font-mono text-[10px]">
                           {wordDoctorPreview.stats.cleanedWords} كلمة
                         </span>
                       </div>
-                      <div className="flex-1 p-3.5 text-xs text-slate-900 dark:text-slate-100 whitespace-pre-wrap overflow-y-auto max-h-[300px] leading-relaxed">
+                      <div className="flex-1 p-3.5 text-xs text-slate-900 dark:text-slate-100 whitespace-pre-wrap overflow-y-auto max-h-[280px] leading-relaxed">
+                        {tool.id === 'protect-word' && officeProtectOpts.stampSecurityCertificate && (
+                          <div className="mb-3 p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-[11px] font-mono text-rose-800 dark:text-rose-200">
+                            🔒 PROTECTED WORD · PASS: {officeProtectOpts.password ? '••••••' : 'NONE'} · MAX USERS: {officeProtectOpts.maxAccessLimit} · MODE: {officeProtectOpts.lockEditingMode.toUpperCase()}
+                          </div>
+                        )}
                         {wordDoctorPreview.cleanedText}
                       </div>
                     </div>
+                  </div>
+                ) : wordMergeQueue.length === 0 ? (
+                  <div className="flex-1 min-h-[340px] rounded-xl border border-dashed border-slate-300 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col items-center justify-center p-6 text-center">
+                    <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 flex items-center justify-center mb-2 shadow-xs">
+                      <FileText className="w-6 h-6" />
+                    </div>
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      لا توجد مستندات Word في قائمة الدمج
+                    </p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs mb-3">
+                      ارفع ملفات Word (.DOCX) أو مستندات نصية لدمجها في مستند واحد منسق.
+                    </p>
+                    <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition-colors">
+                      <Upload className="w-3.5 h-3.5" />
+                      + إضافة ملفات Word للدمج
+                      <input
+                        type="file"
+                        accept=".docx,.txt,.md"
+                        multiple
+                        onChange={handleUploadWordFiles}
+                        className="hidden"
+                      />
+                    </label>
                   </div>
                 ) : (
                   <div className="flex-1 min-h-[340px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3 overflow-y-auto max-h-[350px]">
@@ -2104,10 +2366,17 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
             {tool.hub === 'excel' && (
               <div className="flex flex-col h-full gap-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    {tool.id === 'excel-duplicate-cleaner'
-                      ? `جدول Excel بعد التنظيف (${excelCleanedResult.cleaned.rows.length} صفوف صافية · تم حذف ${excelCleanedResult.duplicatesRemoved} مكرر)`
-                      : 'تحويل بيانات CSV / JSON إلى جدول Excel أو PDF'}
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    {tool.id === 'protect-excel' ? (
+                      <>
+                        <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>حماية وقفل جدول Excel (.XLSX) + تحديد عدد الأشخاص المسموح لهم بالدخول</span>
+                      </>
+                    ) : tool.id === 'excel-duplicate-cleaner' ? (
+                      `جدول Excel بعد التنظيف (${excelCleanedResult.cleaned.rows.length} صفوف صافية · تم حذف ${excelCleanedResult.duplicatesRemoved} مكرر)`
+                    ) : (
+                      'تحويل بيانات CSV / JSON إلى جدول Excel أو PDF'
+                    )}
                   </span>
                   <label className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors">
                     <Upload className="w-3.5 h-3.5" />
@@ -2121,6 +2390,91 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                   </label>
                 </div>
 
+                {tool.id === 'protect-excel' && activeAccessGate && (
+                  <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/70 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10.5px] font-mono font-bold">
+                          {activeAccessGate.tokenId}
+                        </span>
+                        <span className="text-xs font-extrabold text-slate-900 dark:text-white">
+                          بوابة التحكم في عدد الأشخاص المسموح لهم بفتح جدول Excel
+                        </span>
+                      </div>
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                          activeAccessGate.usedCount >= officeProtectOpts.maxAccessLimit
+                            ? 'bg-rose-100 text-rose-700 border border-rose-300'
+                            : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        }`}
+                      >
+                        المقاعد المستخدمة: {activeAccessGate.usedCount} / {officeProtectOpts.maxAccessLimit} أشخاص
+                      </span>
+                    </div>
+
+                    <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          activeAccessGate.usedCount >= officeProtectOpts.maxAccessLimit
+                            ? 'bg-rose-600'
+                            : 'bg-emerald-600'
+                        }`}
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (activeAccessGate.usedCount /
+                              Math.max(1, officeProtectOpts.maxAccessLimit)) *
+                              100
+                          )}%`,
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <input
+                        type="text"
+                        value={testVisitorName}
+                        onChange={(e) => setTestVisitorName(e.target.value)}
+                        placeholder="اسم الزائر / الجهاز"
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs w-36"
+                      />
+                      <input
+                        type="text"
+                        value={testVisitorPassword}
+                        onChange={(e) => setTestVisitorPassword(e.target.value)}
+                        placeholder="كلمة السر للتجربة"
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono w-32"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSimulateOfficeAccessSlot}
+                        className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer"
+                      >
+                        تجربة دخول شخص للجدول
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResetOfficeAccessQuota}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-semibold cursor-pointer"
+                      >
+                        إعادة تصفير العداد
+                      </button>
+                    </div>
+
+                    {gateSimulationFeedback && (
+                      <div
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
+                          gateSimulationFeedback.allowed
+                            ? 'bg-emerald-100/90 text-emerald-900 border border-emerald-300'
+                            : 'bg-rose-100/90 text-rose-900 border border-rose-300'
+                        }`}
+                      >
+                        {gateSimulationFeedback.message}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {tool.id === 'excel-csv-converter' && (
                   <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
                     <div className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
@@ -2130,50 +2484,75 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                       rows={4}
                       value={csvOrJsonText}
                       onChange={(e) => setCsvOrJsonText(e.target.value)}
+                      placeholder="الصق بيانات CSV أو JSON هنا..."
                       className="w-full p-2.5 text-xs font-mono bg-transparent text-slate-800 dark:text-slate-200 focus:outline-none"
                     />
                   </div>
                 )}
 
-                <div className="flex-1 min-h-[250px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-auto max-h-[340px]">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-emerald-600 text-white">
-                        <th className="py-2.5 px-3 font-bold border-r border-emerald-500 w-10 text-center">
-                          #
-                        </th>
-                        {excelCleanedResult.cleaned.headers.map((h, i) => (
-                          <th
-                            key={i}
-                            className="py-2.5 px-3 font-bold border-r border-emerald-500 last:border-r-0"
-                          >
-                            {h || `Col ${i + 1}`}
+                {excelCleanedResult.cleaned.rows.length === 0 ? (
+                  <div className="flex-1 min-h-[250px] rounded-xl border border-dashed border-slate-300 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col items-center justify-center p-6 text-center">
+                    <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center mb-2 shadow-xs">
+                      <FileText className="w-6 h-6" />
+                    </div>
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      لا توجد بيانات جدول حالياً
+                    </p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs mb-3">
+                      قم برفع ملف Excel (.XLSX) أو CSV، أو الصق بيانات الجدول للبدء في تنظيفها وتصديرها.
+                    </p>
+                    <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors">
+                      <Upload className="w-3.5 h-3.5" />
+                      رفع ملف Excel / CSV
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        onChange={handleUploadExcelOrCsvFile}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="flex-1 min-h-[250px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-auto max-h-[340px]">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-emerald-600 text-white">
+                          <th className="py-2.5 px-3 font-bold border-r border-emerald-500 w-10 text-center">
+                            #
                           </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {excelCleanedResult.cleaned.rows.map((row, rIdx) => (
-                        <tr
-                          key={rIdx}
-                          className="border-b border-slate-200 dark:border-slate-800 even:bg-slate-50 dark:even:bg-slate-800/50"
-                        >
-                          <td className="py-2 px-3 font-mono text-[11px] text-slate-400 text-center border-r border-slate-200 dark:border-slate-800">
-                            {rIdx + 1}
-                          </td>
-                          {row.map((cell, cIdx) => (
-                            <td
-                              key={cIdx}
-                              className="py-2 px-3 text-slate-800 dark:text-slate-200 border-r border-slate-100 dark:border-slate-800 last:border-r-0"
+                          {excelCleanedResult.cleaned.headers.map((h, i) => (
+                            <th
+                              key={i}
+                              className="py-2.5 px-3 font-bold border-r border-emerald-500 last:border-r-0"
                             >
-                              {cell}
-                            </td>
+                              {h || `Col ${i + 1}`}
+                            </th>
                           ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {excelCleanedResult.cleaned.rows.map((row, rIdx) => (
+                          <tr
+                            key={rIdx}
+                            className="border-b border-slate-200 dark:border-slate-800 even:bg-slate-50 dark:even:bg-slate-800/50"
+                          >
+                            <td className="py-2 px-3 font-mono text-[11px] text-slate-400 text-center border-r border-slate-200 dark:border-slate-800">
+                              {rIdx + 1}
+                            </td>
+                            {row.map((cell, cIdx) => (
+                              <td
+                                key={cIdx}
+                                className="py-2 px-3 text-slate-800 dark:text-slate-200 border-r border-slate-100 dark:border-slate-800 last:border-r-0"
+                              >
+                                {cell}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2181,13 +2560,107 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
             {tool.hub === 'powerpoint' && (
               <div className="flex flex-col h-full gap-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    معاينة شرائح العرض التقديمي ({pptSlidesPreview.length} شرائح محتوى + شريحة غلاف)
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    {tool.id === 'protect-powerpoint' ? (
+                      <>
+                        <Lock className="w-3.5 h-3.5 text-[#e5322d]" />
+                        <span>حماية وقفل عرض PowerPoint (.PPTX) + تحديد عدد الأشخاص المسموح لهم بالدخول</span>
+                      </>
+                    ) : (
+                      `معاينة شرائح العرض التقديمي (${pptSlidesPreview.length} شرائح محتوى + شريحة غلاف)`
+                    )}
                   </span>
                   <span className="px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 text-[11px] font-bold">
-                    16:9 Widescreen PPTX
+                    {tool.id === 'protect-powerpoint'
+                      ? `🔒 الحد الأقصى: ${officeProtectOpts.maxAccessLimit} أشخاص`
+                      : '16:9 Widescreen PPTX'}
                   </span>
                 </div>
+
+                {tool.id === 'protect-powerpoint' && activeAccessGate && (
+                  <div className="p-3.5 rounded-xl bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/70 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-[#e5322d] text-white text-[10.5px] font-mono font-bold">
+                          {activeAccessGate.tokenId}
+                        </span>
+                        <span className="text-xs font-extrabold text-slate-900 dark:text-white">
+                          بوابة التحكم في عدد الأشخاص المسموح لهم باستعراض شرائح PowerPoint
+                        </span>
+                      </div>
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                          activeAccessGate.usedCount >= officeProtectOpts.maxAccessLimit
+                            ? 'bg-rose-100 text-rose-700 border border-rose-300'
+                            : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        }`}
+                      >
+                        المقاعد المستخدمة: {activeAccessGate.usedCount} / {officeProtectOpts.maxAccessLimit} أشخاص
+                      </span>
+                    </div>
+
+                    <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          activeAccessGate.usedCount >= officeProtectOpts.maxAccessLimit
+                            ? 'bg-rose-600'
+                            : 'bg-[#e5322d]'
+                        }`}
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (activeAccessGate.usedCount /
+                              Math.max(1, officeProtectOpts.maxAccessLimit)) *
+                              100
+                          )}%`,
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <input
+                        type="text"
+                        value={testVisitorName}
+                        onChange={(e) => setTestVisitorName(e.target.value)}
+                        placeholder="اسم الزائر / الجهاز"
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs w-36"
+                      />
+                      <input
+                        type="text"
+                        value={testVisitorPassword}
+                        onChange={(e) => setTestVisitorPassword(e.target.value)}
+                        placeholder="كلمة السر للتجربة"
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono w-32"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSimulateOfficeAccessSlot}
+                        className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer"
+                      >
+                        تجربة دخول شخص للعرض
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResetOfficeAccessQuota}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-semibold cursor-pointer"
+                      >
+                        إعادة تصفير العداد
+                      </button>
+                    </div>
+
+                    {gateSimulationFeedback && (
+                      <div
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
+                          gateSimulationFeedback.allowed
+                            ? 'bg-emerald-100/90 text-emerald-900 border border-emerald-300'
+                            : 'bg-rose-100/90 text-rose-900 border border-rose-300'
+                        }`}
+                      >
+                        {gateSimulationFeedback.message}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-[340px]">
                   <div className="flex flex-col rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
@@ -2197,36 +2670,51 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                     <textarea
                       value={pptOutlineText}
                       onChange={(e) => setPptOutlineText(e.target.value)}
+                      placeholder={"اكتب مخطط الشرائح هنا أو ارفع ملفك...\n# الشريحة الأولى\n- النقطة الأولى\n- النقطة الثانية\n\n# الشريحة الثانية\n- ملخص النقاط الرئيسية"}
                       className="flex-1 p-3 text-xs font-mono bg-transparent text-slate-800 dark:text-slate-200 focus:outline-none resize-none leading-relaxed"
                     />
                   </div>
 
-                  <div className="space-y-2.5 overflow-y-auto max-h-[340px] pr-1">
-                    {pptSlidesPreview.map((slide, sIdx) => (
-                      <div
-                        key={sIdx}
-                        className={`p-4 rounded-xl border shadow-xs ${
-                          pptColorTheme === 'navy-corporate'
-                            ? 'bg-slate-900 text-white border-slate-700'
-                            : pptColorTheme === 'minimal-light'
-                            ? 'bg-slate-50 text-slate-900 border-blue-200'
-                            : 'bg-white text-slate-900 border-rose-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-[#e5322d] text-white">
-                            Slide {sIdx + 1}
-                          </span>
-                          <span className="text-[10px] opacity-60 font-mono">16:9</span>
+                  <div className="space-y-2.5 overflow-y-auto max-h-[340px] pr-1 flex flex-col">
+                    {pptSlidesPreview.length === 0 ? (
+                      <div className="flex-1 min-h-[300px] flex flex-col items-center justify-center p-6 text-center border border-dashed border-slate-300 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-900/40">
+                        <div className="w-12 h-12 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-[#e5322d] flex items-center justify-center mb-2 shadow-xs">
+                          <FileText className="w-6 h-6" />
                         </div>
-                        <h4 className="text-xs font-extrabold mb-2">{slide.title}</h4>
-                        <ul className="space-y-1 text-[11px] opacity-90 list-disc list-inside">
-                          {slide.bullets.map((b, bIdx) => (
-                            <li key={bIdx}>{b}</li>
-                          ))}
-                        </ul>
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                          لا توجد شرائح بعد
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-[210px]">
+                          اكتب مخطط الشرائح على اليسار أو ارفع ملف Word لتوليد العرض فوراً.
+                        </p>
                       </div>
-                    ))}
+                    ) : (
+                      pptSlidesPreview.map((slide, sIdx) => (
+                        <div
+                          key={sIdx}
+                          className={`p-4 rounded-xl border shadow-xs ${
+                            pptColorTheme === 'navy-corporate'
+                              ? 'bg-slate-900 text-white border-slate-700'
+                              : pptColorTheme === 'minimal-light'
+                              ? 'bg-slate-50 text-slate-900 border-blue-200'
+                              : 'bg-white text-slate-900 border-rose-200'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-[#e5322d] text-white">
+                              Slide {sIdx + 1}
+                            </span>
+                            <span className="text-[10px] opacity-60 font-mono">16:9</span>
+                          </div>
+                          <h4 className="text-xs font-extrabold mb-2">{slide.title}</h4>
+                          <ul className="space-y-1 text-[11px] opacity-90 list-disc list-inside">
+                            {slide.bullets.map((b, bIdx) => (
+                              <li key={bIdx}>{b}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               </div>
@@ -2256,6 +2744,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                     <textarea
                       value={smartTextInput}
                       onChange={(e) => setSmartTextInput(e.target.value)}
+                      placeholder="الصق النص هنا لمعالجته، إزالة التشكيل، فرز الأسطر، أو استخراج الإيميلات وأرقام الهواتف..."
                       className="flex-1 p-3 text-xs bg-transparent text-slate-800 dark:text-slate-200 focus:outline-none resize-none leading-relaxed"
                     />
                   </div>
@@ -2276,6 +2765,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                     <textarea
                       readOnly
                       value={smartTextResult.outputText}
+                      placeholder="ستظهر النتيجة المعالجة هنا فور إدخال النص على اليمين..."
                       className="flex-1 p-3 text-xs font-mono bg-transparent text-slate-900 dark:text-slate-100 focus:outline-none resize-none leading-relaxed"
                     />
                   </div>
@@ -2322,62 +2812,68 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
 
                       {/* Ordered File List with Up / Down / Delete Controls */}
                       <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-                        {pdfFiles.map((file, idx) => (
-                          <div
-                            key={file.id}
-                            className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700"
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <span className="w-6 h-6 rounded-md bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-[11px] font-mono font-bold flex items-center justify-center shrink-0">
-                                {idx + 1}
-                              </span>
-                              <div className="min-w-0">
-                                <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
-                                  {file.name}
-                                </div>
-                                <div className="text-[10.5px] font-mono text-slate-500 dark:text-slate-400">
-                                  {file.pageCount} page{file.pageCount === 1 ? '' : 's'} ·{' '}
-                                  {(file.bytes.byteLength / 1024).toFixed(0)} KB
+                        {pdfFiles.length === 0 ? (
+                          <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
+                            لم يتم رفع أي ملفات بعد
+                          </div>
+                        ) : (
+                          pdfFiles.map((file, idx) => (
+                            <div
+                              key={file.id}
+                              className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className="w-6 h-6 rounded-md bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-[11px] font-mono font-bold flex items-center justify-center shrink-0">
+                                  {idx + 1}
+                                </span>
+                                <div className="min-w-0">
+                                  <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                                    {file.name}
+                                  </div>
+                                  <div className="text-[10.5px] font-mono text-slate-500 dark:text-slate-400">
+                                    {file.pageCount} page{file.pageCount === 1 ? '' : 's'} ·{' '}
+                                    {(file.bytes.byteLength / 1024).toFixed(0)} KB
+                                  </div>
                                 </div>
                               </div>
-                            </div>
 
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button
-                                type="button"
-                                disabled={idx === 0}
-                                onClick={() => handleMovePdfFile(idx, -1)}
-                                className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-30 cursor-pointer"
-                                title="Move Up"
-                              >
-                                <ArrowUp className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                disabled={idx === pdfFiles.length - 1}
-                                onClick={() => handleMovePdfFile(idx, 1)}
-                                className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-30 cursor-pointer"
-                                title="Move Down"
-                              >
-                                <ArrowDown className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleRemovePdfFile(idx)}
-                                className="p-1 rounded hover:bg-rose-100 dark:hover:bg-rose-950/60 text-slate-400 hover:text-rose-600 cursor-pointer"
-                                title="Remove File"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  disabled={idx === 0}
+                                  onClick={() => handleMovePdfFile(idx, -1)}
+                                  className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-30 cursor-pointer"
+                                  title="Move Up"
+                                >
+                                  <ArrowUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={idx === pdfFiles.length - 1}
+                                  onClick={() => handleMovePdfFile(idx, 1)}
+                                  className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-30 cursor-pointer"
+                                  title="Move Down"
+                                >
+                                  <ArrowDown className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemovePdfFile(idx)}
+                                  className="p-1 rounded hover:bg-rose-100 dark:hover:bg-rose-950/60 text-slate-400 hover:text-rose-600 cursor-pointer"
+                                  title="Remove File"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ))
+                        )}
                       </div>
 
                       {/* Prominent Add More PDF Files Button */}
                       <label className="w-full py-2.5 px-3 rounded-xl border-2 border-dashed border-rose-300 dark:border-rose-800/80 hover:border-rose-600 bg-rose-50/50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors">
                         <Plus className="w-4 h-4" />
-                        {isUsingSamplePdf
+                        {pdfFiles.length === 0
                           ? 'Upload Your PDF Files to Merge'
                           : '+ Add Another PDF File to Queue'}
                         <input
@@ -3989,8 +4485,210 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                 </div>
               )}
 
+              {/* SHARED OFFICE PROTECTION & ACCESS LIMIT PANEL (WORD / EXCEL / POWERPOINT) */}
+              {(tool.id === 'protect-word' ||
+                tool.id === 'protect-excel' ||
+                tool.id === 'protect-powerpoint') && (
+                <div className="space-y-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <KeyRound className="w-4 h-4 text-[#e5322d]" />
+                      <span className="text-xs font-extrabold text-slate-900 dark:text-white">
+                        إعدادات القفل وتحديد عدد الأشخاص
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">
+                      Access Quota Vault
+                    </span>
+                  </div>
+
+                  {/* 1. Password Input */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
+                      1. كلمة السر لفتح الملف (Document Password)
+                    </label>
+                    <input
+                      type="text"
+                      value={officeProtectOpts.password}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setOfficeProtectOpts((p) => ({ ...p, password: val }));
+                        setTestVisitorPassword(val);
+                      }}
+                      placeholder="أدخل كلمة السر القوية..."
+                      className="w-full px-3.5 py-2 text-xs font-mono font-bold rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:border-slate-900 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* 2. Maximum Allowed Viewers / People Selector */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-blue-600" />
+                        <span>2. تحديد عدد الأشخاص المسموح لهم بالدخول:</span>
+                      </label>
+                      <span className="px-2.5 py-0.5 rounded-lg bg-slate-900 text-white text-xs font-mono font-extrabold">
+                        {officeProtectOpts.maxAccessLimit}{' '}
+                        {officeProtectOpts.maxAccessLimit === 1 ? 'شخص واحد فقط' : 'أشخاص'}
+                      </span>
+                    </div>
+
+                    {/* Quick Preset Pills */}
+                    <div className="grid grid-cols-6 gap-1.5 mb-2">
+                      {[1, 3, 5, 10, 25, 50].map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => {
+                            setOfficeProtectOpts((p) => ({ ...p, maxAccessLimit: num }));
+                            if (activeAccessGate) {
+                              setActiveAccessGate({
+                                ...activeAccessGate,
+                                maxAllowedUsers: num,
+                              });
+                            }
+                          }}
+                          className={`py-1.5 rounded-lg text-xs font-extrabold border transition-colors cursor-pointer ${
+                            officeProtectOpts.maxAccessLimit === num
+                              ? 'bg-[#e5322d] text-white border-[#e5322d]'
+                              : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                          }`}
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Custom Range + Number Input */}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="1"
+                        max="100"
+                        value={officeProtectOpts.maxAccessLimit}
+                        onChange={(e) => {
+                          const num = Math.max(1, Number(e.target.value));
+                          setOfficeProtectOpts((p) => ({ ...p, maxAccessLimit: num }));
+                          if (activeAccessGate) {
+                            setActiveAccessGate({
+                              ...activeAccessGate,
+                              maxAllowedUsers: num,
+                            });
+                          }
+                        }}
+                        className="flex-1 accent-[#e5322d]"
+                      />
+                      <input
+                        type="number"
+                        min={1}
+                        max={500}
+                        value={officeProtectOpts.maxAccessLimit}
+                        onChange={(e) => {
+                          const num = Math.max(1, Math.min(500, Number(e.target.value) || 1));
+                          setOfficeProtectOpts((p) => ({ ...p, maxAccessLimit: num }));
+                          if (activeAccessGate) {
+                            setActiveAccessGate({
+                              ...activeAccessGate,
+                              maxAllowedUsers: num,
+                            });
+                          }
+                        }}
+                        className="w-16 px-2 py-1 text-center text-xs font-mono font-bold rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 3. Editing & Copy Restriction Policy */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
+                      3. نوع القفل وصلاحيات المستخدمين داخل الملف
+                    </label>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {(
+                        [
+                          {
+                            id: 'full-lock',
+                            label: '🔒 قفل كامل (قراءة فقط + منع التعديل وتجميد الخلايا/الشرائح)',
+                          },
+                          {
+                            id: 'read-only-watermark',
+                            label: '🛡️ قراءة مع ختم أمني ورقم تسلسلي يمنع النسخ والتوزيع',
+                          },
+                          {
+                            id: 'form-comments-only',
+                            label: '✍️ السماح بالتعليقات أو ملء النماذج فقط بدون تغيير المحتوى الأصلي',
+                          },
+                        ] as const
+                      ).map((mode) => (
+                        <button
+                          key={mode.id}
+                          type="button"
+                          onClick={() =>
+                            setOfficeProtectOpts((p) => ({ ...p, lockEditingMode: mode.id }))
+                          }
+                          className={`text-start py-2 px-3 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
+                            officeProtectOpts.lockEditingMode === mode.id
+                              ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900'
+                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                          }`}
+                        >
+                          {mode.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 4. Access Expiration Time */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
+                      4. مدة صلاحية الدخول الزمنية (Access Expiry)
+                    </label>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {(
+                        [
+                          { hours: 24, label: '24 ساعة' },
+                          { hours: 168, label: '7 أيام' },
+                          { hours: 720, label: '30 يوماً' },
+                          { hours: 0, label: 'دائم' },
+                        ] as const
+                      ).map((exp) => (
+                        <button
+                          key={exp.hours}
+                          type="button"
+                          onClick={() =>
+                            setOfficeProtectOpts((p) => ({ ...p, expirationHours: exp.hours }))
+                          }
+                          className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border cursor-pointer ${
+                            officeProtectOpts.expirationHours === exp.hours
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700'
+                          }`}
+                        >
+                          {exp.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer pt-1">
+                    <input
+                      type="checkbox"
+                      checked={officeProtectOpts.stampSecurityCertificate}
+                      onChange={(e) =>
+                        setOfficeProtectOpts((p) => ({
+                          ...p,
+                          stampSecurityCertificate: e.target.checked,
+                        }))
+                      }
+                      className="accent-[#e5322d]"
+                    />
+                    <span>إدراج شهادة الحماية وعداد الزوار المسموح بهم داخل الملف</span>
+                  </label>
+                </div>
+              )}
+
               {/* WORD STUDIO CONTROLS */}
-              {tool.hub === 'word' && (
+              {tool.hub === 'word' && tool.id !== 'protect-word' && (
                 <div className="space-y-4">
                   {tool.id === 'word-format-doctor' ? (
                     <div className="space-y-3">
@@ -4115,7 +4813,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
               )}
 
               {/* EXCEL & DATA CONTROLS */}
-              {tool.hub === 'excel' && (
+              {tool.hub === 'excel' && tool.id !== 'protect-excel' && (
                 <div className="space-y-4">
                   {tool.id === 'excel-duplicate-cleaner' && (
                     <div className="space-y-2.5">
@@ -4252,7 +4950,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
               )}
 
               {/* POWERPOINT STUDIO CONTROLS */}
-              {tool.hub === 'powerpoint' && (
+              {tool.hub === 'powerpoint' && tool.id !== 'protect-powerpoint' && (
                 <div className="space-y-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -4405,34 +5103,80 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
               {tool.hub === 'word' && (
                 <button
                   onClick={handleDownloadWordOutput}
-                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+                  disabled={tool.id === 'protect-word' && !officeProtectOpts.password.trim()}
+                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
                 >
-                  <Download className="w-4 h-4" />
-                  {tool.id === 'word-format-doctor'
-                    ? 'تنزيل مستند Word المصلح (.DOCX)'
-                    : `دمج وتنزيل ملف Word الموحد (${wordMergeQueue.length} أقسام .DOCX)`}
+                  {tool.id === 'protect-word' ? (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      <span>
+                        قفل وتنزيل ملف Word المحمي (الحد الأقصى: {officeProtectOpts.maxAccessLimit}{' '}
+                        أشخاص)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      <span>
+                        {tool.id === 'word-format-doctor'
+                          ? 'تنزيل مستند Word المصلح (.DOCX)'
+                          : `دمج وتنزيل ملف Word الموحد (${wordMergeQueue.length} أقسام .DOCX)`}
+                      </span>
+                    </>
+                  )}
                 </button>
               )}
 
               {tool.hub === 'excel' && (
                 <button
                   onClick={handleDownloadExcelOutput}
-                  className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+                  disabled={tool.id === 'protect-excel' && !officeProtectOpts.password.trim()}
+                  className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
                 >
-                  <Download className="w-4 h-4" />
-                  تنزيل الجدول بصيغة .{excelExportFormat.toUpperCase()} ({excelCleanedResult.cleaned.rows.length} صفوف)
+                  {tool.id === 'protect-excel' ? (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      <span>
+                        قفل وتنزيل جدول Excel المحمي (الحد الأقصى: {officeProtectOpts.maxAccessLimit}{' '}
+                        أشخاص)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      <span>
+                        تنزيل الجدول بصيغة .{excelExportFormat.toUpperCase()} (
+                        {excelCleanedResult.cleaned.rows.length} صفوف)
+                      </span>
+                    </>
+                  )}
                 </button>
               )}
 
               {tool.hub === 'powerpoint' && (
                 <button
                   onClick={handleDownloadPowerPointOutput}
-                  className="w-full py-3 px-4 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+                  disabled={tool.id === 'protect-powerpoint' && !officeProtectOpts.password.trim()}
+                  className="w-full py-3 px-4 rounded-xl bg-[#e5322d] hover:bg-[#d12823] disabled:opacity-50 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
                 >
-                  <Download className="w-4 h-4" />
-                  {tool.id === 'ppt-slide-generator'
-                    ? `تنزيل عرض PowerPoint الجاهز (.PPTX · ${pptSlidesPreview.length + 1} شرائح)`
-                    : `تنزيل مذكرة الملخص (.${pptHandoutFormat.toUpperCase()})`}
+                  {tool.id === 'protect-powerpoint' ? (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      <span>
+                        قفل وتنزيل عرض PowerPoint المحمي (الحد الأقصى:{' '}
+                        {officeProtectOpts.maxAccessLimit} أشخاص)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      <span>
+                        {tool.id === 'ppt-slide-generator'
+                          ? `تنزيل عرض PowerPoint الجاهز (.PPTX · ${pptSlidesPreview.length + 1} شرائح)`
+                          : `تنزيل مذكرة الملخص (.${pptHandoutFormat.toUpperCase()})`}
+                      </span>
+                    </>
+                  )}
                 </button>
               )}
 

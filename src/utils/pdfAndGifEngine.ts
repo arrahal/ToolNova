@@ -161,7 +161,7 @@ export async function extractRealPdfContent(
     pdfDocument = await loadingTask.promise;
   } catch {
     // Fallback if user uploaded an image (PNG/JPG/WebP) instead of a PDF
-    const blob = new Blob([pdfBytes]);
+    const blob = new Blob([pdfBytes as BlobPart]);
     const url = URL.createObjectURL(blob);
     try {
       const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -1958,7 +1958,7 @@ export async function renderPdfPageToCanvas(
     return { canvas, totalPages: pdfDoc.numPages };
   } catch {
     // Fallback: try rendering as an image (JPG/PNG/WebP) onto the canvas
-    const blob = new Blob([pdfBytes]);
+    const blob = new Blob([pdfBytes as BlobPart]);
     const url = URL.createObjectURL(blob);
     try {
       const img = await new Promise<HTMLImageElement>((resolve, reject) => {

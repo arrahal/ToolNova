@@ -865,6 +865,90 @@ const TOOL_TEXT_TRANSLATIONS: Record<
       description: 'Extrae automáticamente todas las direcciones de email y números de teléfono desde textos o registros.',
     },
   },
+  'protect-word': {
+    ar: {
+      title: 'حماية Word',
+      description: 'احمِ مستندات Word بكلمة سر قوية بتشفير AES-256 وحدّد عدد الأشخاص المسموح لهم بفتح الملف (مثل حماية PDF تماماً).',
+    },
+    fr: {
+      title: 'Protéger Word',
+      description: 'Protégez vos documents Word (.DOCX) avec un mot de passe fort AES-256 et limitez le nombre de personnes autorisées.',
+    },
+    es: {
+      title: 'Proteger Word',
+      description: 'Protege documentos Word (.DOCX) con contraseña AES-256 y limita el número máximo de personas autorizadas.',
+    },
+  },
+  'unlock-word': {
+    ar: {
+      title: 'فتح قفل Word',
+      description: 'أزل قيود الحماية وفك تشفير ملفات Word المحمية بكلمة سر بسهولة.',
+    },
+    fr: {
+      title: 'Déverrouiller Word',
+      description: 'Supprimez la protection par mot de passe de vos documents Word autorisés en un clic.',
+    },
+    es: {
+      title: 'Desbloquear Word',
+      description: 'Elimina las restricciones de contraseña en tus documentos Word autorizados.',
+    },
+  },
+  'protect-excel': {
+    ar: {
+      title: 'حماية Excel',
+      description: 'احمِ جداول ومعادلات Excel بكلمة سر قوية بتشفير AES-256 وحدّد عدد الأشخاص المسموح لهم بفتح الجدول.',
+    },
+    fr: {
+      title: 'Protéger Excel',
+      description: 'Chiffrez vos feuilles Excel (.XLSX) par mot de passe AES-256, verrouillez les cellules et limitez le nombre de visiteurs.',
+    },
+    es: {
+      title: 'Proteger Excel',
+      description: 'Protege hojas Excel (.XLSX) con contraseña AES-256, bloquea celdas y limita cuántas personas pueden abrir el archivo.',
+    },
+  },
+  'unlock-excel': {
+    ar: {
+      title: 'فتح قفل Excel',
+      description: 'أزل قفل الخلايا وفك تشفير جداول Excel المحمية بكلمة سر المصرح لك باستخدامها.',
+    },
+    fr: {
+      title: 'Déverrouiller Excel',
+      description: 'Déverrouillez vos feuilles de calcul Excel protégées par mot de passe instantanément.',
+    },
+    es: {
+      title: 'Desbloquear Excel',
+      description: 'Desbloquea hojas de cálculo Excel protegidas con contraseña al instante.',
+    },
+  },
+  'protect-powerpoint': {
+    ar: {
+      title: 'حماية PowerPoint',
+      description: 'احمِ عروض PowerPoint التقديمية بكلمة سر قوية بتشفير AES-256 وحدّد عدد الأشخاص المسموح لهم بفتح العرض.',
+    },
+    fr: {
+      title: 'Protéger PowerPoint',
+      description: 'Sécurisez vos présentations PowerPoint (.PPTX) par mot de passe AES-256 et limitez le nombre de visiteurs.',
+    },
+    es: {
+      title: 'Proteger PowerPoint',
+      description: 'Asegura presentaciones PowerPoint (.PPTX) con contraseña AES-256 y limita el número máximo de espectadores.',
+    },
+  },
+  'unlock-powerpoint': {
+    ar: {
+      title: 'فتح قفل PowerPoint',
+      description: 'أزل قيود الحماية وفك تشفير عروض PowerPoint المحمية بكلمة سر بسهولة.',
+    },
+    fr: {
+      title: 'Déverrouiller PowerPoint',
+      description: 'Supprimez les restrictions par mot de passe de vos présentations PowerPoint autorisées.',
+    },
+    es: {
+      title: 'Desbloquear PowerPoint',
+      description: 'Elimina las restricciones de contraseña en tus presentaciones PowerPoint autorizadas.',
+    },
+  },
 };
 
 export function getLocalizedTool(tool: ToolItem, lang: AppLanguage): {

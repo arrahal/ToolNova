@@ -1,0 +1,2220 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Lock,
+  Unlock,
+  ShieldCheck,
+  Upload,
+  FileText,
+  FileSpreadsheet,
+  Presentation,
+  FileArchive,
+  Download,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertTriangle,
+  X,
+  RefreshCw,
+  Trash2,
+  Ban,
+  Clock,
+  KeyRound,
+  LayoutDashboard,
+  FolderLock,
+  ShieldAlert,
+  ChevronLeft,
+  ChevronRight,
+  Info,
+  Sparkles,
+} from 'lucide-react';
+import { AppLanguage } from '../data/translations';
+import { Document, Packer, Paragraph, HeadingLevel, TextRun } from 'docx';
+
+export type ProtectorTab = 'encrypt' | 'open' | 'dashboard';
+
+export interface ProtectedFileSummary {
+  fileId: string;
+  ownerId?: string;
+  originalName: string;
+  secureFileName: string;
+  interactiveFileName?: string;
+  extension: string;
+  category: 'word' | 'excel' | 'powerpoint' | 'pdf' | 'zip' | 'other';
+  fileSize: number;
+  createdAt: number;
+  expiresAt: number | null;
+  expirationLabel: string;
+  maxOpens: number | null;
+  usedOpens: number;
+  remainingOpens: number | null;
+  status: 'active' | 'expired' | 'exhausted' | 'revoked' | 'deleted';
+  lastOpenedAt: number | null;
+  openLogs?: {
+    attemptId: string;
+    openedAt: number;
+    openNumber: number;
+    clientSummary: string;
+  }[];
+}
+
+interface ViewerPayload {
+  viewerType: 'word' | 'excel' | 'powerpoint' | 'pdf' | 'zip';
+  htmlContent?: string;
+  textContent?: string;
+  sheets?: { name: string; rows: string[][] }[];
+  slides?: { slideNumber: number; title: string; bullets: string[] }[];
+  pdfBase64?: string;
+  zipEntries?: {
+    name: string;
+    sizeBytes: number;
+    isDirectory: boolean;
+    compressedSize: number;
+  }[];
+}
+
+interface FileProtectorModalProps {
+  isOpen: boolean;
+  initialTab?: ProtectorTab;
+  language: AppLanguage;
+  ownerId?: string;
+  onClose: () => void;
+  onRecordHistory?: (toolTitle: string, detail: string) => void;
+}
+
+const SUPPORTED_EXTENSIONS = ['.docx', '.xlsx', '.pptx', '.pdf', '.zip'];
+
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 KB';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function getFileTypeLabel(fileName: string, isAr: boolean): {
+  ext: string;
+  label: string;
+  badge: string;
+  colorClass: string;
+} {
+  const lower = fileName.toLowerCase().replace(/\.secure$/i, '');
+  if (lower.endsWith('.docx')) {
+    return {
+      ext: '.docx',
+      label: isAr ? 'مستند Microsoft Word (.docx)' : 'Microsoft Word Document (.docx)',
+      badge: 'WORD',
+      colorClass: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800',
+    };
+  }
+  if (lower.endsWith('.xlsx')) {
+    return {
+      ext: '.xlsx',
+      label: isAr ? 'جدول بيانات Microsoft Excel (.xlsx)' : 'Microsoft Excel Spreadsheet (.xlsx)',
+      badge: 'EXCEL',
+      colorClass: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800',
+    };
+  }
+  if (lower.endsWith('.pptx')) {
+    return {
+      ext: '.pptx',
+      label: isAr ? 'عرض تقديمي PowerPoint (.pptx)' : 'PowerPoint Presentation (.pptx)',
+      badge: 'PPTX',
+      colorClass: 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/50 dark:text-orange-300 dark:border-orange-800',
+    };
+  }
+  if (lower.endsWith('.pdf')) {
+    return {
+      ext: '.pdf',
+      label: isAr ? 'مستند PDF محمول (.pdf)' : 'PDF Document (.pdf)',
+      badge: 'PDF',
+      colorClass: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800',
+    };
+  }
+  if (lower.endsWith('.zip')) {
+    return {
+      ext: '.zip',
+      label: isAr ? 'أرشيف مضغوط ZIP (.zip)' : 'ZIP Compressed Archive (.zip)',
+      badge: 'ZIP',
+      colorClass: 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/50 dark:text-violet-300 dark:border-violet-800',
+    };
+  }
+  return {
+    ext: '.unknown',
+    label: isAr ? 'ملف غير مدعوم' : 'Unsupported File',
+    badge: 'FILE',
+    colorClass: 'bg-slate-100 text-slate-700 border-slate-200',
+  };
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  }
+  return btoa(binary);
+}
+
+function downloadBase64File(base64: string, fileName: string, mime = 'application/octet-stream') {
+  const binaryStr = atob(base64);
+  const len = binaryStr.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
+  isOpen,
+  initialTab = 'encrypt',
+  language,
+  ownerId = 'anonymous',
+  onClose,
+  onRecordHistory,
+}) => {
+  const isAr = language === 'ar';
+  const [activeTab, setActiveTab] = useState<ProtectorTab>(initialTab);
+
+  // ---------------- ENCRYPT WIZARD STATES ----------------
+  const [encryptStep, setEncryptStep] = useState<1 | 2 | 3>(1);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDraggingUpload, setIsDraggingUpload] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Step 2: Protection settings
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
+  const [openLimitPreset, setOpenLimitPreset] = useState<
+    '1' | '2' | '5' | '10' | 'custom' | 'unlimited'
+  >('1');
+  const [customOpenLimit, setCustomOpenLimit] = useState<number>(3);
+
+  const [expiryPreset, setExpiryPreset] = useState<
+    '1h' | '24h' | '7d' | '30d' | 'never' | 'custom'
+  >('24h');
+  const [customExpiryHours, setCustomExpiryHours] = useState<number>(48);
+
+  const [isEncrypting, setIsEncrypting] = useState(false);
+  const [encryptError, setEncryptError] = useState<string | null>(null);
+  const [encryptedResult, setEncryptedResult] = useState<{
+    file: ProtectedFileSummary;
+    secureFileBase64: string;
+    interactiveHtmlBase64?: string;
+    interactiveFileName?: string;
+  } | null>(null);
+
+  // ---------------- OPEN PROTECTED FILE STATES ----------------
+  const [secureContainerData, setSecureContainerData] = useState<{
+    fileId: string;
+    originalName: string;
+    secureFileName: string;
+    extension: string;
+    fileSize: number;
+    maxOpens: number | null;
+    expirationLabel: string;
+    ciphertextBase64?: string;
+  } | null>(null);
+  const [inspectedRecord, setInspectedRecord] = useState<ProtectedFileSummary | null>(null);
+  const [openPasswordInput, setOpenPasswordInput] = useState('');
+  const [showOpenPassword, setShowOpenPassword] = useState(false);
+  const [isOpeningFile, setIsOpeningFile] = useState(false);
+  const [openErrorMsg, setOpenErrorMsg] = useState<string | null>(null);
+  const [unavailableScreen, setUnavailableScreen] = useState<{
+    reasonTitle: string;
+    reasonSubtitle: string;
+    code: string;
+  } | null>(null);
+  const [openedViewerData, setOpenedViewerData] = useState<{
+    file: ProtectedFileSummary;
+    viewer: ViewerPayload;
+    message: string;
+  } | null>(null);
+  const [activeExcelSheetIdx, setActiveExcelSheetIdx] = useState(0);
+  const [activeSlideIdx, setActiveSlideIdx] = useState(0);
+
+  // ---------------- DASHBOARD STATES ----------------
+  const [dashboardFiles, setDashboardFiles] = useState<ProtectedFileSummary[]>([]);
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
+  const [selectedLogsFile, setSelectedLogsFile] = useState<ProtectedFileSummary | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const secureFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+      if (initialTab === 'dashboard') {
+        fetchDashboardFiles();
+      }
+    }
+  }, [isOpen, initialTab]);
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'dashboard') {
+      fetchDashboardFiles();
+    }
+  }, [isOpen, activeTab]);
+
+  if (!isOpen) return null;
+
+  const fetchDashboardFiles = async () => {
+    setIsLoadingDashboard(true);
+    try {
+      const res = await fetch('/api/protector/dashboard');
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.files)) {
+        setDashboardFiles(data.files);
+      }
+    } catch (e) {
+      console.error('Failed to load dashboard files:', e);
+    } finally {
+      setIsLoadingDashboard(false);
+    }
+  };
+
+  // Validate and set file in Step 1
+  const handleSelectRawFile = (file: File) => {
+    setUploadError(null);
+    const ext = '.' + (file.name.split('.').pop() || '').toLowerCase();
+    if (!SUPPORTED_EXTENSIONS.includes(ext)) {
+      setUploadError(
+        isAr
+          ? `صيغة الملف (${ext}) غير مدعومة. الصيغ المدعومة: Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF (.pdf), ZIP (.zip).`
+          : `Unsupported format (${ext}). Supported: .docx, .xlsx, .pptx, .pdf, .zip.`
+      );
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      setUploadError(
+        isAr
+          ? 'حجم الملف يتجاوز الحد الأقصى المسموح به (50 ميجابايت).'
+          : 'File exceeds the 50 MB maximum size limit.'
+      );
+      return;
+    }
+    setSelectedFile(file);
+  };
+
+  // Generate a real sample .docx file if user wants a 1-click demo
+  const handleCreateSampleDocx = async () => {
+    setUploadError(null);
+    const doc = new Document({
+      sections: [
+        {
+          children: [
+            new Paragraph({
+              text: 'وثيقة سرية محمية — نظام تشفير الملفات وحمايتها (AES-256-GCM)',
+              heading: HeadingLevel.HEADING_1,
+            }),
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: 'تم تشفير هذا المستند باستخدام خوارزمية AES-256-GCM مع اشتقاق المفاتيح عبر Argon2id، والتحكم الذري (Atomic) في عدد مرات الفتح المسموحة عبر الخادم.',
+                  bold: true,
+                }),
+              ],
+            }),
+            new Paragraph({
+              text: 'عند تحديد عدد مرات الفتح = 1، فإن أول عملية فتح صحيحة تستهلك الفتحة الوحيدة فوراً، ويرفض الخادم أي محاولة فتح ثانية حتى لو كانت كلمة المرور صحيحة.',
+            }),
+          ],
+        },
+      ],
+    });
+    const blob = await Packer.toBlob(doc);
+    const file = new File([blob], 'Confidential_Contract_2026.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    setSelectedFile(file);
+  };
+
+  const resolveMaxOpensValue = (): number | null => {
+    if (openLimitPreset === 'unlimited') return null;
+    if (openLimitPreset === 'custom') return Math.max(1, Math.floor(customOpenLimit || 1));
+    return parseInt(openLimitPreset, 10);
+  };
+
+  const resolveExpirationInfo = (): { ms: number | null; label: string } => {
+    switch (expiryPreset) {
+      case '1h':
+        return { ms: 60 * 60 * 1000, label: isAr ? 'ساعة واحدة' : '1 Hour' };
+      case '24h':
+        return { ms: 24 * 60 * 60 * 1000, label: isAr ? '24 ساعة' : '24 Hours' };
+      case '7d':
+        return { ms: 7 * 24 * 60 * 60 * 1000, label: isAr ? '7 أيام' : '7 Days' };
+      case '30d':
+        return { ms: 30 * 24 * 60 * 60 * 1000, label: isAr ? '30 يوماً' : '30 Days' };
+      case 'custom': {
+        const hrs = Math.max(1, Math.floor(customExpiryHours || 1));
+        return {
+          ms: hrs * 60 * 60 * 1000,
+          label: isAr ? `${hrs} ساعة (مخصص)` : `${hrs} Hours (Custom)`,
+        };
+      }
+      case 'never':
+      default:
+        return { ms: null, label: isAr ? 'بدون انتهاء' : 'No Expiration' };
+    }
+  };
+
+  const handleEncryptFile = async () => {
+    if (!selectedFile) return;
+    setEncryptError(null);
+
+    if (!password || password.length < 4) {
+      setEncryptError(
+        isAr
+          ? 'يرجى إدخال كلمة مرور قوية (4 أحرف أو أرقام على الأقل).'
+          : 'Please enter a password of at least 4 characters.'
+      );
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setEncryptError(
+        isAr
+          ? 'كلمة المرور وتأكيد كلمة المرور غير متطابقين.'
+          : 'Password and Confirm Password do not match.'
+      );
+      return;
+    }
+
+    setIsEncrypting(true);
+    try {
+      const arrayBuffer = await selectedFile.arrayBuffer();
+      const fileBase64 = arrayBufferToBase64(arrayBuffer);
+      const maxOpens = resolveMaxOpensValue();
+      const exp = resolveExpirationInfo();
+
+      const res = await fetch('/api/protector/encrypt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: selectedFile.name,
+          mimeType: selectedFile.type,
+          fileSize: selectedFile.size,
+          fileBase64,
+          password,
+          confirmPassword,
+          maxOpens,
+          expirationMs: exp.ms,
+          expirationLabel: exp.label,
+          ownerId,
+          clientOrigin: window.location.origin,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setEncryptError(data.error || (isAr ? 'فشل تشفير الملف.' : 'Encryption failed.'));
+        return;
+      }
+
+      setEncryptedResult({
+        file: data.file,
+        secureFileBase64: data.secureFileBase64,
+        interactiveHtmlBase64: data.interactiveHtmlBase64,
+        interactiveFileName:
+          data.interactiveFileName || `${data.file.originalName}.protected.html`,
+      });
+      setEncryptStep(3);
+      fetchDashboardFiles();
+
+      if (onRecordHistory) {
+        onRecordHistory(
+          isAr ? 'تشفير وحماية ملف (AES-256-GCM)' : 'File Encrypted (AES-256-GCM)',
+          `${data.file.originalName} -> ${data.file.secureFileName} (${
+            data.file.maxOpens === null ? 'Unlimited' : `${data.file.maxOpens} opens`
+          })`
+        );
+      }
+    } catch (err) {
+      console.error('Encrypt request error:', err);
+      setEncryptError(
+        isAr
+          ? 'حدث خطأ في الاتصال بالخادم أثناء تشفير الملف.'
+          : 'Network error while encrypting file.'
+      );
+    } finally {
+      setIsEncrypting(false);
+    }
+  };
+
+  // ---------------- OPEN .SECURE OR .PROTECTED.HTML FILE LOGIC ----------------
+  const handleSelectSecureFile = async (file: File) => {
+    setOpenErrorMsg(null);
+    setUnavailableScreen(null);
+    setOpenedViewerData(null);
+    setOpenPasswordInput('');
+
+    try {
+      const text = await file.text();
+      let parsed: Record<string, unknown> | null = null;
+
+      // Support both interactive `.protected.html` files and raw `.secure` JSON containers!
+      const embeddedMatch = text.match(
+        /<!--TOOLNOVA_SECURE_CONTAINER_START([\s\S]*?)TOOLNOVA_SECURE_CONTAINER_END-->/
+      );
+      if (embeddedMatch && embeddedMatch[1]) {
+        parsed = JSON.parse(embeddedMatch[1]);
+      } else {
+        parsed = JSON.parse(text);
+      }
+
+      if (!parsed || parsed.magic !== 'TOOLNOVA-SECURE-FILE-V1' || !parsed.fileId) {
+        setOpenErrorMsg(
+          isAr
+            ? 'هذا الملف ليس ملفاً مشفراً صالحاً بصيغة (.protected.html أو .secure) الخاصة بالنظام.'
+            : 'Invalid protected file format.'
+        );
+        return;
+      }
+
+      setSecureContainerData({
+        fileId: String(parsed.fileId),
+        originalName:
+          String(parsed.originalName || '') ||
+          file.name.replace(/\.(protected\.html|secure)$/i, ''),
+        secureFileName: file.name,
+        extension: String(parsed.extension || '.docx'),
+        fileSize: Number(parsed.fileSize || file.size),
+        maxOpens: (parsed.maxOpens as number | null) ?? null,
+        expirationLabel: String(parsed.expirationLabel || (isAr ? 'غير محدد' : 'N/A')),
+        ciphertextBase64: parsed.ciphertextBase64 as string | undefined,
+      });
+
+      // Inspect current server status
+      await inspectFileById(String(parsed.fileId));
+    } catch {
+      setOpenErrorMsg(
+        isAr
+          ? 'تعذر قراءة الملف المحمي. يرجى التأكد من اختيار الملف المشفر (.protected.html أو .secure) الذي قمت بتحميله.'
+          : 'Could not parse protected file. Please select a valid .protected.html or .secure file.'
+      );
+    }
+  };
+
+  const inspectFileById = async (fileId: string) => {
+    try {
+      const res = await fetch('/api/protector/inspect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.exists) {
+        setUnavailableScreen({
+          reasonTitle: isAr ? '🔒 الملف غير متاح' : '🔒 File Unavailable',
+          reasonSubtitle:
+            data.error ||
+            (isAr
+              ? 'لقد انتهت صلاحية الوصول إلى هذا الملف.'
+              : 'Access to this file has expired.'),
+          code: 'DELETED',
+        });
+        return;
+      }
+
+      const f: ProtectedFileSummary = data.file;
+      setInspectedRecord(f);
+
+      if (f.status === 'expired' || f.status === 'exhausted' || f.status === 'revoked') {
+        setUnavailableScreen({
+          reasonTitle: isAr ? '🔒 الملف غير متاح' : '🔒 File Unavailable',
+          reasonSubtitle:
+            f.status === 'exhausted'
+              ? isAr
+                ? 'انتهت صلاحية فتح هذا الملف. لقد انتهت صلاحية الوصول إلى هذا الملف لاستهلاك جميع مرات الفتح المسموحة.'
+                : 'This file has reached its maximum open limit and is no longer available.'
+              : isAr
+              ? 'لقد انتهت صلاحية الوصول إلى هذا الملف.'
+              : 'Access to this file has expired or been revoked.',
+          code: f.status.toUpperCase(),
+        });
+      }
+    } catch (e) {
+      console.error('Inspect error:', e);
+    }
+  };
+
+  const handleLoadIntoOpener = async (summary: ProtectedFileSummary) => {
+    setOpenErrorMsg(null);
+    setUnavailableScreen(null);
+    setOpenedViewerData(null);
+    setOpenPasswordInput('');
+    setSecureContainerData({
+      fileId: summary.fileId,
+      originalName: summary.originalName,
+      secureFileName: summary.secureFileName,
+      extension: summary.extension,
+      fileSize: summary.fileSize,
+      maxOpens: summary.maxOpens,
+      expirationLabel: summary.expirationLabel,
+    });
+    setActiveTab('open');
+    await inspectFileById(summary.fileId);
+  };
+
+  const handleUnlockAndOpenFile = async () => {
+    if (!secureContainerData) return;
+    setOpenErrorMsg(null);
+
+    if (!openPasswordInput.trim()) {
+      setOpenErrorMsg(isAr ? 'الرجاء إدخال كلمة المرور.' : 'Please enter the password.');
+      return;
+    }
+
+    setIsOpeningFile(true);
+    try {
+      const res = await fetch('/api/protector/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileId: secureContainerData.fileId,
+          password: openPasswordInput,
+          ciphertextBase64: secureContainerData.ciphertextBase64,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.allowed) {
+        if (
+          data.code === 'OPEN_LIMIT_REACHED' ||
+          data.code === 'EXPIRED_TIME' ||
+          data.code === 'REVOKED' ||
+          data.code === 'DELETED'
+        ) {
+          setUnavailableScreen({
+            reasonTitle: isAr ? '🔒 الملف غير متاح' : '🔒 File Unavailable',
+            reasonSubtitle:
+              data.code === 'OPEN_LIMIT_REACHED'
+                ? isAr
+                  ? 'انتهت صلاحية فتح هذا الملف. لقد انتهت صلاحية الوصول إلى هذا الملف.'
+                  : 'Open limit reached. Access to this file has expired.'
+                : data.error ||
+                  (isAr
+                    ? 'لقد انتهت صلاحية الوصول إلى هذا الملف.'
+                    : 'Access to this file has expired.'),
+            code: data.code,
+          });
+          fetchDashboardFiles();
+          return;
+        }
+
+        setOpenErrorMsg(
+          data.error || (isAr ? 'كلمة المرور غير صحيحة.' : 'Incorrect password.')
+        );
+        return;
+      }
+
+      // Success! File opened and slot atomically consumed
+      setActiveExcelSheetIdx(0);
+      setActiveSlideIdx(0);
+      setOpenedViewerData({
+        file: data.file,
+        viewer: data.viewer,
+        message: data.message,
+      });
+      setInspectedRecord(data.file);
+      fetchDashboardFiles();
+
+      if (onRecordHistory) {
+        onRecordHistory(
+          isAr ? 'فتح ملف مشفر (.secure)' : 'Opened Protected File (.secure)',
+          `${data.file.originalName} (Open #${data.file.usedOpens}/${
+            data.file.maxOpens ?? '∞'
+          })`
+        );
+      }
+    } catch (e) {
+      console.error('Unlock error:', e);
+      setOpenErrorMsg(
+        isAr
+          ? 'حدث خطأ أثناء الاتصال بالخادم لفك تشفير الملف.'
+          : 'Server error while unlocking file.'
+      );
+    } finally {
+      setIsOpeningFile(false);
+    }
+  };
+
+  // ---------------- DASHBOARD ACTIONS ----------------
+  const handleRevokeFile = async (fileId: string) => {
+    try {
+      await fetch('/api/protector/revoke', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId }),
+      });
+      fetchDashboardFiles();
+    } catch (e) {
+      console.error('Revoke error:', e);
+    }
+  };
+
+  const handleRecreateFile = async (item: ProtectedFileSummary) => {
+    try {
+      await fetch('/api/protector/recreate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileId: item.fileId,
+          maxOpens: item.maxOpens,
+        }),
+      });
+      fetchDashboardFiles();
+    } catch (e) {
+      console.error('Recreate error:', e);
+    }
+  };
+
+  const handleDeleteFile = async (fileId: string) => {
+    try {
+      await fetch(`/api/protector/${fileId}`, {
+        method: 'DELETE',
+      });
+      if (selectedLogsFile?.fileId === fileId) {
+        setSelectedLogsFile(null);
+      }
+      fetchDashboardFiles();
+    } catch (e) {
+      console.error('Delete error:', e);
+    }
+  };
+
+  const handleDownloadSecureFromDashboard = async (
+    fileId: string,
+    format: 'interactive' | 'secure' = 'interactive'
+  ) => {
+    try {
+      const res = await fetch(`/api/protector/download-secure/${fileId}`);
+      const data = await res.json();
+      if (data.ok) {
+        if (format === 'interactive' && data.interactiveHtmlBase64) {
+          downloadBase64File(
+            data.interactiveHtmlBase64,
+            data.interactiveFileName || `${data.secureFileName}.html`,
+            'text/html;charset=utf-8'
+          );
+        } else if (data.secureFileBase64) {
+          downloadBase64File(data.secureFileBase64, data.secureFileName);
+        }
+      }
+    } catch (e) {
+      console.error('Download secure error:', e);
+    }
+  };
+
+  const resetEncryptWizard = () => {
+    setSelectedFile(null);
+    setPassword('');
+    setConfirmPassword('');
+    setEncryptError(null);
+    setEncryptedResult(null);
+    setEncryptStep(1);
+  };
+
+  const renderStatusText = (status: ProtectedFileSummary['status']) => {
+    switch (status) {
+      case 'active':
+        return (
+          <span className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-bold text-xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            {isAr ? 'نشط' : 'Active'}
+          </span>
+        );
+      case 'exhausted':
+        return (
+          <span className="inline-flex items-center gap-1.5 text-rose-600 dark:text-rose-400 font-bold text-xs">
+            <span className="w-2 h-2 rounded-full bg-rose-500" />
+            {isAr ? 'منتهي (استُنفدت الفتحات)' : 'Exhausted'}
+          </span>
+        );
+      case 'expired':
+        return (
+          <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-bold text-xs">
+            <span className="w-2 h-2 rounded-full bg-amber-500" />
+            {isAr ? 'منتهي الصلاحية' : 'Expired'}
+          </span>
+        );
+      case 'revoked':
+        return (
+          <span className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-bold text-xs">
+            <span className="w-2 h-2 rounded-full bg-slate-400" />
+            {isAr ? 'ملغى' : 'Revoked'}
+          </span>
+        );
+      default:
+        return <span>{status}</span>;
+    }
+  };
+
+  return (
+    <div
+      dir={isAr ? 'rtl' : 'ltr'}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-3 sm:p-6 overflow-y-auto"
+    >
+      <div className="relative w-full max-w-5xl bg-[#FAFAFC] dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+        {/* Top Modal Header */}
+        <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-5 py-4 flex flex-wrap items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-rose-950/60 border border-red-200 dark:border-rose-800 flex items-center justify-center text-[#e5322d]">
+              <FolderLock className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-extrabold text-[#111827] dark:text-white flex items-center gap-2">
+                <span>
+                  {isAr
+                    ? '🔐 تشفير الملفات وحمايتها (File Protector)'
+                    : '🔐 File Protector — Encryption & Access Control'}
+                </span>
+              </h2>
+              <p className="text-xs text-[#64748b] dark:text-slate-400">
+                {isAr
+                  ? 'تشفير حقيقي AES-256-GCM · تجزئة Argon2id · تحكم ذري صارم بعدد مرات الفتح عبر الخادم'
+                  : 'AES-256-GCM Encryption · Argon2id Key Derivation · Server-Enforced Atomic Open Limits'}
+              </p>
+            </div>
+          </div>
+
+          {/* Navigation Tabs inside File Protector */}
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setActiveTab('encrypt')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'encrypt'
+                  ? 'bg-white dark:bg-slate-900 text-[#e5322d] shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+              }`}
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span>{isAr ? 'تشفير ملف جديد' : 'Encrypt File'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('open');
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'open'
+                  ? 'bg-white dark:bg-slate-900 text-[#e5322d] shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+              }`}
+            >
+              <Unlock className="w-3.5 h-3.5" />
+              <span>{isAr ? 'فتح ملف محمي (.secure)' : 'Open Protected File'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('dashboard');
+                fetchDashboardFiles();
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'dashboard'
+                  ? 'bg-white dark:bg-slate-900 text-[#e5322d] shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+              }`}
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              <span>{isAr ? 'لوحة التحكم' : 'Dashboard'}</span>
+              {dashboardFiles.length > 0 && (
+                <span className="font-mono text-[11px] text-slate-400">
+                  ({dashboardFiles.length})
+                </span>
+              )}
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="flex-1 overflow-y-auto p-5 sm:p-7">
+          {/* ================================================================
+              TAB 1: ENCRYPT & PROTECT FILE (3-STEP WIZARD)
+             ================================================================ */}
+          {activeTab === 'encrypt' && (
+            <div className="max-w-3xl mx-auto">
+              {/* Stepper Progress */}
+              <div className="flex items-center justify-between mb-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4">
+                {[
+                  {
+                    step: 1,
+                    title: isAr ? '1. اختيار الملف' : '1. Select File',
+                    sub: isAr ? 'Word, Excel, PPT, PDF, ZIP' : 'Word, Excel, PPT, PDF, ZIP',
+                  },
+                  {
+                    step: 2,
+                    title: isAr ? '2. إعداد الحماية' : '2. Protection Settings',
+                    sub: isAr ? 'كلمة المرور · عدد الفتحات · الصلاحية' : 'Password · Open Limit · Expiry',
+                  },
+                  {
+                    step: 3,
+                    title: isAr ? '3. تحميل الملف المشفر' : '3. Download .secure',
+                    sub: isAr ? 'تشفير AES-256-GCM جاهز' : 'AES-256-GCM Ready',
+                  },
+                ].map((item, idx) => {
+                  const isCurrent = encryptStep === item.step;
+                  const isDone = encryptStep > item.step;
+                  return (
+                    <React.Fragment key={item.step}>
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-extrabold transition-colors ${
+                            isCurrent
+                              ? 'bg-[#e5322d] text-white'
+                              : isDone
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                          }`}
+                        >
+                          {isDone ? <CheckCircle2 className="w-4 h-4" /> : item.step}
+                        </div>
+                        <div>
+                          <div
+                            className={`text-xs sm:text-sm font-bold ${
+                              isCurrent
+                                ? 'text-[#111827] dark:text-white'
+                                : 'text-slate-500 dark:text-slate-400'
+                            }`}
+                          >
+                            {item.title}
+                          </div>
+                          <div className="text-[11px] text-slate-400 hidden sm:block">
+                            {item.sub}
+                          </div>
+                        </div>
+                      </div>
+                      {idx < 2 && (
+                        <div className="hidden sm:block h-px flex-1 mx-4 bg-slate-200 dark:bg-slate-800" />
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+
+              {/* STEP 1: DRAG & DROP FILE SELECTION */}
+              {encryptStep === 1 && (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xs transition-all">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".docx,.xlsx,.pptx,.pdf,.zip"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleSelectRawFile(f);
+                      e.target.value = '';
+                    }}
+                    className="hidden"
+                  />
+
+                  {!selectedFile ? (
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDraggingUpload(true);
+                      }}
+                      onDragLeave={() => setIsDraggingUpload(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setIsDraggingUpload(false);
+                        const f = e.dataTransfer.files?.[0];
+                        if (f) handleSelectRawFile(f);
+                      }}
+                      onClick={() => fileInputRef.current?.click()}
+                      className={`border-2 border-dashed rounded-2xl p-8 sm:p-10 text-center cursor-pointer transition-all ${
+                        isDraggingUpload
+                          ? 'border-[#e5322d] bg-red-50/40 dark:bg-rose-950/20 scale-[1.01]'
+                          : 'border-slate-300 dark:border-slate-700 hover:border-[#e5322d] hover:bg-slate-50/70 dark:hover:bg-slate-800/40'
+                      }`}
+                    >
+                      <div className="w-14 h-14 rounded-2xl bg-red-50 dark:bg-rose-950/60 text-[#e5322d] flex items-center justify-center mx-auto mb-4 shadow-2xs">
+                        <Upload className="w-7 h-7" />
+                      </div>
+                      <h3 className="text-base sm:text-lg font-extrabold text-[#111827] dark:text-white mb-2">
+                        {isAr
+                          ? 'اسحب الملف هنا أو اختر ملفاً من جهازك'
+                          : 'Drag & drop your file here or choose a file from your device'}
+                      </h3>
+                      <p className="text-xs text-[#64748b] dark:text-slate-400 mb-5">
+                        {isAr
+                          ? 'الملفات المدعومة: Word (.docx) · Excel (.xlsx) · PowerPoint (.pptx) · PDF (.pdf) · ZIP (.zip) — حتى 50 ميجابايت'
+                          : 'Supported formats: Word (.docx) · Excel (.xlsx) · PowerPoint (.pptx) · PDF (.pdf) · ZIP (.zip) — up to 50 MB'}
+                      </p>
+
+                      <div className="flex flex-wrap items-center justify-center gap-3">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            fileInputRef.current?.click();
+                          }}
+                          className="px-5 py-2.5 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white text-xs sm:text-sm font-bold shadow-xs transition-all cursor-pointer inline-flex items-center gap-2"
+                        >
+                          <Upload className="w-4 h-4" />
+                          <span>{isAr ? 'اختر ملفاً من جهازك' : 'Choose File'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCreateSampleDocx();
+                          }}
+                          className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1.5"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-[#e5322d]" />
+                          <span>
+                            {isAr
+                              ? 'تجربة سريعة بملف Word جاهز (.docx)'
+                              : 'Try with Sample Word (.docx)'}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Selected File Details Card */
+                    <div className="space-y-5">
+                      <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+                        <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-xs font-bold">
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>
+                            {isAr
+                              ? 'تم اختيار الملف بنجاح وهو جاهز لإعداد الحماية'
+                              : 'File selected and ready for protection setup'}
+                          </span>
+                        </div>
+                        <span className="text-xs font-mono text-slate-400">
+                          AES-256-GCM Ready
+                        </span>
+                      </div>
+
+                      {(() => {
+                        const info = getFileTypeLabel(selectedFile.name, isAr);
+                        return (
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                            <div>
+                              <div className="text-[11px] text-slate-400 mb-1">
+                                {isAr ? 'اسم الملف' : 'File Name'}
+                              </div>
+                              <div className="text-sm font-extrabold text-[#111827] dark:text-white break-all">
+                                {selectedFile.name}
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="text-[11px] text-slate-400 mb-1">
+                                {isAr ? 'نوع الملف' : 'File Type'}
+                              </div>
+                              <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                {info.label}
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="text-[11px] text-slate-400 mb-1">
+                                {isAr ? 'حجم الملف' : 'File Size'}
+                              </div>
+                              <div className="text-sm font-mono font-bold text-[#111827] dark:text-white">
+                                {formatBytes(selectedFile.size)}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-xs font-bold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>{isAr ? 'تغيير الملف' : 'Change File'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEncryptStep(2)}
+                          className="px-6 py-2.5 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white text-xs sm:text-sm font-bold shadow-xs transition-all cursor-pointer inline-flex items-center gap-2"
+                        >
+                          <span>{isAr ? 'متابعة لإعداد الحماية' : 'Continue'}</span>
+                          {isAr ? (
+                            <ChevronLeft className="w-4 h-4" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {uploadError && (
+                    <div className="mt-4 p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>{uploadError}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STEP 2: PROTECTION SETTINGS (PASSWORD + OPEN LIMIT + EXPIRATION) */}
+              {encryptStep === 2 && selectedFile && (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xs space-y-6">
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <div>
+                      <h3 className="text-base font-extrabold text-[#111827] dark:text-white">
+                        {isAr ? 'الخطوة الثانية: إعداد الحماية والتشفير' : 'Step 2: Protection & Encryption Settings'}
+                      </h3>
+                      <p className="text-xs text-[#64748b] dark:text-slate-400">
+                        {selectedFile.name} · {formatBytes(selectedFile.size)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEncryptStep(1)}
+                      className="text-xs font-bold text-slate-500 hover:text-[#e5322d] cursor-pointer"
+                    >
+                      {isAr ? 'تغيير الملف' : 'Change File'}
+                    </button>
+                  </div>
+
+                  {/* Password & Confirm Password */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-extrabold text-[#111827] dark:text-slate-200 mb-2">
+                        {isAr ? 'كلمة المرور' : 'Password'}
+                      </label>
+                      <div className="relative">
+                        <KeyRound className="w-4 h-4 text-slate-400 absolute top-1/2 -translate-y-1/2 right-3.5 pointer-events-none" />
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="••••••••"
+                          className="w-full pr-10 pl-10 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm text-[#111827] dark:text-white focus:outline-none focus:border-[#e5322d]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((p) => !p)}
+                          className="absolute top-1/2 -translate-y-1/2 left-3 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
+                        >
+                          {showPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-extrabold text-[#111827] dark:text-slate-200 mb-2">
+                        {isAr ? 'تأكيد كلمة المرور' : 'Confirm Password'}
+                      </label>
+                      <div className="relative">
+                        <KeyRound className="w-4 h-4 text-slate-400 absolute top-1/2 -translate-y-1/2 right-3.5 pointer-events-none" />
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          placeholder="••••••••"
+                          className="w-full pr-10 pl-10 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm text-[#111827] dark:text-white focus:outline-none focus:border-[#e5322d]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Open Limit Options */}
+                  <div>
+                    <label className="block text-xs font-extrabold text-[#111827] dark:text-slate-200 mb-2">
+                      {isAr ? 'عدد مرات الفتح المسموحة' : 'Allowed Number of Opens'}
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      {[
+                        { id: '1', label: isAr ? 'مرة واحدة (1)' : '1 Time Only' },
+                        { id: '2', label: isAr ? 'مرتان (2)' : '2 Times' },
+                        { id: '5', label: isAr ? '5 مرات' : '5 Times' },
+                        { id: '10', label: isAr ? '10 مرات' : '10 Times' },
+                        { id: 'custom', label: isAr ? 'عدد مخصص' : 'Custom Limit' },
+                        { id: 'unlimited', label: isAr ? 'بدون حد' : 'Unlimited' },
+                      ].map((opt) => {
+                        const active = openLimitPreset === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() =>
+                              setOpenLimitPreset(
+                                opt.id as '1' | '2' | '5' | '10' | 'custom' | 'unlimited'
+                              )
+                            }
+                            className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                              active
+                                ? 'bg-red-50/90 dark:bg-rose-950/60 border-[#e5322d] text-[#e5322d] dark:text-rose-300 shadow-2xs'
+                                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {openLimitPreset === 'custom' && (
+                      <div className="mt-3 flex items-center gap-3">
+                        <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                          {isAr ? 'حدد عدد المرات:' : 'Enter max opens:'}
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10000}
+                          value={customOpenLimit}
+                          onChange={(e) =>
+                            setCustomOpenLimit(Math.max(1, parseInt(e.target.value || '1', 10)))
+                          }
+                          className="w-28 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono font-bold"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* File Expiration Duration Options */}
+                  <div>
+                    <label className="block text-xs font-extrabold text-[#111827] dark:text-slate-200 mb-2">
+                      {isAr ? 'مدة صلاحية الملف' : 'File Expiration Duration'}
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      {[
+                        { id: '1h', label: isAr ? 'ساعة واحدة' : '1 Hour' },
+                        { id: '24h', label: isAr ? '24 ساعة' : '24 Hours' },
+                        { id: '7d', label: isAr ? '7 أيام' : '7 Days' },
+                        { id: '30d', label: isAr ? '30 يوماً' : '30 Days' },
+                        { id: 'never', label: isAr ? 'بدون انتهاء' : 'Never Expires' },
+                        { id: 'custom', label: isAr ? 'مدة مخصصة' : 'Custom Duration' },
+                      ].map((opt) => {
+                        const active = expiryPreset === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() =>
+                              setExpiryPreset(
+                                opt.id as '1h' | '24h' | '7d' | '30d' | 'never' | 'custom'
+                              )
+                            }
+                            className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                              active
+                                ? 'bg-red-50/90 dark:bg-rose-950/60 border-[#e5322d] text-[#e5322d] dark:text-rose-300 shadow-2xs'
+                                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {expiryPreset === 'custom' && (
+                      <div className="mt-3 flex items-center gap-3">
+                        <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                          {isAr ? 'عدد الساعات:' : 'Duration in hours:'}
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={8760}
+                          value={customExpiryHours}
+                          onChange={(e) =>
+                            setCustomExpiryHours(
+                              Math.max(1, parseInt(e.target.value || '1', 10))
+                            )
+                          }
+                          className="w-28 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono font-bold"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Transparent Security Architecture Note (Requirement #13) */}
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 flex items-start gap-2.5 leading-relaxed">
+                    <Info className="w-4 h-4 text-[#e5322d] shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-[#111827] dark:text-white">
+                        {isAr
+                          ? 'كيف يعمل نظام "فتح مرة واحدة" بشكل موثوق؟ '
+                          : 'How Atomic One-Time Open Control Works: '}
+                      </strong>
+                      {isAr
+                        ? 'يتم تشفير الملف فعلياً بخوارزمية AES-256-GCM وتجزئة كلمة المرور عبر Argon2id، وتُسجل الحصة في قاعدة بيانات الخادم بقفل ذري (Atomic Lock). يتم فتح وعرض الملف من خلال العارض الآمن (Secure Viewer) المرتبط بالخادم لضمان استحالة تجاوز عدد الفتحات المسموحة حتى لو تم إرسال ملف (.secure) لشخص آخر مع كلمة المرور.'
+                        : 'Files are encrypted with AES-256-GCM and Argon2id, and open quotas are enforced atomically on the server via the Secure Viewer.'}
+                    </div>
+                  </div>
+
+                  {encryptError && (
+                    <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>{encryptError}</span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setEncryptStep(1)}
+                      className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 cursor-pointer"
+                    >
+                      {isAr ? 'رجوع' : 'Back'}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isEncrypting}
+                      onClick={handleEncryptFile}
+                      className="px-7 py-3 rounded-xl bg-[#e5322d] hover:bg-[#d12823] disabled:opacity-60 text-white text-xs sm:text-sm font-extrabold shadow-sm transition-all cursor-pointer inline-flex items-center gap-2"
+                    >
+                      <Lock className="w-4 h-4" />
+                      <span>
+                        {isEncrypting
+                          ? isAr
+                            ? 'جاري التشفير عبر AES-256-GCM...'
+                            : 'Encrypting with AES-256-GCM...'
+                          : isAr
+                          ? '🔐 تشفير الملف'
+                          : '🔐 Encrypt File'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 3: ENCRYPTION SUCCESS & DOWNLOAD .SECURE FILE */}
+              {encryptStep === 3 && encryptedResult && (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xs text-center space-y-6">
+                  <div className="w-16 h-16 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+                    <CheckCircle2 className="w-9 h-9" />
+                  </div>
+
+                  <div>
+                    <h3 className="text-lg sm:text-xl font-extrabold text-[#111827] dark:text-white mb-1">
+                      {isAr ? '✅ تم تشفير الملف بنجاح' : '✅ File Encrypted Successfully'}
+                    </h3>
+                    <p className="text-xs text-[#64748b] dark:text-slate-400">
+                      {isAr
+                        ? 'تم إنشاء حاوية التشفير (.secure) وحفظ قواعد الفتح الذرية في قاعدة البيانات.'
+                        : 'Your .secure encrypted file is ready and registered in the atomic access database.'}
+                    </p>
+                  </div>
+
+                  <div className="max-w-lg mx-auto bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 text-start space-y-3 text-xs">
+                    <div className="flex items-center justify-between border-b border-slate-200/70 dark:border-slate-700 pb-2.5">
+                      <span className="text-slate-500">{isAr ? 'اسم الملف:' : 'File Name:'}</span>
+                      <span className="font-extrabold text-[#111827] dark:text-white">
+                        {encryptedResult.file.originalName}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between border-b border-slate-200/70 dark:border-slate-700 pb-2.5">
+                      <span className="text-slate-500">
+                        {isAr ? 'الملف المشفر:' : 'Encrypted File:'}
+                      </span>
+                      <span className="font-mono font-bold text-[#e5322d]">
+                        {encryptedResult.file.secureFileName}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between border-b border-slate-200/70 dark:border-slate-700 pb-2.5">
+                      <span className="text-slate-500">
+                        {isAr ? 'عدد مرات الفتح:' : 'Allowed Opens:'}
+                      </span>
+                      <span className="font-extrabold text-[#111827] dark:text-white">
+                        {encryptedResult.file.maxOpens === null
+                          ? isAr
+                            ? 'بدون حد'
+                            : 'Unlimited'
+                          : encryptedResult.file.maxOpens}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between border-b border-slate-200/70 dark:border-slate-700 pb-2.5">
+                      <span className="text-slate-500">{isAr ? 'الصلاحية:' : 'Expiration:'}</span>
+                      <span className="font-extrabold text-[#111827] dark:text-white">
+                        {encryptedResult.file.expirationLabel}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">
+                        {isAr ? 'خوارزمية التشفير:' : 'Encryption:'}
+                      </span>
+                      <span className="font-mono text-[11px] text-emerald-700 dark:text-emerald-400 font-bold">
+                        AES-256-GCM + Argon2id
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-3 pt-2">
+                    {/* Primary Download: Interactive Self-Opening Protected File (works on double-click on PC/Mobile!) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (encryptedResult.interactiveHtmlBase64) {
+                          downloadBase64File(
+                            encryptedResult.interactiveHtmlBase64,
+                            encryptedResult.interactiveFileName ||
+                              `${encryptedResult.file.originalName}.protected.html`,
+                            'text/html;charset=utf-8'
+                          );
+                        } else {
+                          downloadBase64File(
+                            encryptedResult.secureFileBase64,
+                            encryptedResult.file.secureFileName
+                          );
+                        }
+                      }}
+                      className="px-7 py-3.5 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white text-xs sm:text-sm font-extrabold shadow-sm transition-all cursor-pointer inline-flex items-center gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>
+                        {isAr
+                          ? '⬇️ تحميل الملف المحمي التفاعلي (يفتح مباشرة ويطلب الكود عند النقر عليه)'
+                          : '⬇️ Download Interactive Protected File (Prompts for Password on Double-Click)'}
+                      </span>
+                    </button>
+
+                    {/* Secondary Download: Raw .secure container */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadBase64File(
+                          encryptedResult.secureFileBase64,
+                          encryptedResult.file.secureFileName
+                        )
+                      }
+                      className="px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-2"
+                    >
+                      <Download className="w-3.5 h-3.5 text-[#e5322d]" />
+                      <span>
+                        {isAr
+                          ? `تحميل حاوية (${encryptedResult.file.secureFileName})`
+                          : `Download Raw (${encryptedResult.file.secureFileName})`}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleLoadIntoOpener(encryptedResult.file)}
+                      className="px-5 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 text-xs font-extrabold transition-all cursor-pointer inline-flex items-center gap-2"
+                    >
+                      <Unlock className="w-4 h-4" />
+                      <span>
+                        {isAr
+                          ? 'تجربة فتح الملف المحمي الآن'
+                          : 'Test Opening Protected File Now'}
+                      </span>
+                    </button>
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={resetEncryptWizard}
+                      className="text-xs font-bold text-slate-500 hover:text-[#e5322d] underline underline-offset-4 cursor-pointer"
+                    >
+                      {isAr ? 'تشفير ملف آخر' : 'Encrypt another file'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ================================================================
+              TAB 2: OPEN PROTECTED FILE (.SECURE) & SECURE VIEWER
+             ================================================================ */}
+          {activeTab === 'open' && (
+            <div className="max-w-4xl mx-auto space-y-6">
+              <input
+                ref={secureFileInputRef}
+                type="file"
+                accept=".secure,.html,text/html,application/json"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleSelectSecureFile(f);
+                  e.target.value = '';
+                }}
+                className="hidden"
+              />
+
+              {/* 1. If no .secure file selected yet */}
+              {!secureContainerData && (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xs space-y-6">
+                  <div
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) handleSelectSecureFile(f);
+                    }}
+                    onClick={() => secureFileInputRef.current?.click()}
+                    className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-[#e5322d] rounded-2xl p-8 text-center cursor-pointer transition-all hover:bg-slate-50/60 dark:hover:bg-slate-800/40"
+                  >
+                    <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[#e5322d] flex items-center justify-center mx-auto mb-3">
+                      <Unlock className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-base sm:text-lg font-extrabold text-[#111827] dark:text-white mb-1.5">
+                      {isAr
+                        ? 'اختر ملفاً محمياً بامتداد (.secure) لفتحه'
+                        : 'Select a protected (.secure) file to open'}
+                    </h3>
+                    <p className="text-xs text-[#64748b] dark:text-slate-400 mb-5">
+                      {isAr
+                        ? 'اسحب ملف (.secure) هنا أو اضغط لاختياره من جهازك للتحقق من كلمة المرور والصلاحية وعرضه في العارض الآمن'
+                        : 'Drop your .secure file here or click to browse'}
+                    </p>
+                    <button
+                      type="button"
+                      className="px-5 py-2.5 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white text-xs font-extrabold cursor-pointer inline-flex items-center gap-2"
+                    >
+                      <Upload className="w-4 h-4" />
+                      <span>{isAr ? 'اختيار ملف .secure' : 'Select .secure File'}</span>
+                    </button>
+                  </div>
+
+                  {openErrorMsg && (
+                    <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>{openErrorMsg}</span>
+                    </div>
+                  )}
+
+                  {/* Quick access to recently encrypted files on server */}
+                  {dashboardFiles.length > 0 && (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                      <div className="text-xs font-extrabold text-slate-600 dark:text-slate-300 mb-3">
+                        {isAr
+                          ? 'أو اختر أحد الملفات المشفرة المسجلة لاختبار بوابة الفتح مباشرة:'
+                          : 'Or select a registered protected file to test opening:'}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {dashboardFiles.slice(0, 6).map((f) => (
+                          <button
+                            key={f.fileId}
+                            type="button"
+                            onClick={() => handleLoadIntoOpener(f)}
+                            className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 hover:border-[#e5322d] text-start transition-all flex items-center justify-between gap-2 cursor-pointer"
+                          >
+                            <div className="truncate">
+                              <div className="text-xs font-extrabold text-[#111827] dark:text-white truncate">
+                                {f.secureFileName}
+                              </div>
+                              <div className="text-[11px] text-slate-400">
+                                {isAr ? 'المتبقي:' : 'Remaining:'}{' '}
+                                {f.remainingOpens === null ? '∞' : f.remainingOpens} ·{' '}
+                                {f.expirationLabel}
+                              </div>
+                            </div>
+                            {renderStatusText(f.status)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 2. EXPIRED / EXHAUSTED / UNAVAILABLE SCREEN (Requirement #10) */}
+              {secureContainerData && unavailableScreen && (
+                <div className="bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/70 rounded-2xl p-8 sm:p-10 text-center shadow-2xs space-y-5">
+                  <div className="w-16 h-16 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-[#e5322d] flex items-center justify-center mx-auto">
+                    <ShieldAlert className="w-9 h-9" />
+                  </div>
+
+                  <div className="space-y-2 max-w-md mx-auto">
+                    <h3 className="text-xl font-extrabold text-[#111827] dark:text-white">
+                      {isAr ? '🔒 الملف غير متاح' : '🔒 File Unavailable'}
+                    </h3>
+                    <p className="text-sm font-bold text-[#e5322d] dark:text-rose-400">
+                      {isAr
+                        ? '"لقد انتهت صلاحية الوصول إلى هذا الملف."'
+                        : '"Access to this file has expired."'}
+                    </p>
+                    <p className="text-xs text-[#64748b] dark:text-slate-400 leading-relaxed">
+                      {unavailableScreen.reasonSubtitle}
+                    </p>
+                  </div>
+
+                  {inspectedRecord && (
+                    <div className="max-w-sm mx-auto p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 flex items-center justify-around">
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">
+                          {isAr ? 'مرات الفتح المستخدمة' : 'Used Opens'}
+                        </span>
+                        <span className="font-mono font-extrabold text-sm">
+                          {inspectedRecord.usedOpens} / {inspectedRecord.maxOpens ?? '∞'}
+                        </span>
+                      </div>
+                      <div className="h-6 w-px bg-slate-200 dark:bg-slate-700" />
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">
+                          {isAr ? 'الفتحات المتبقية' : 'Remaining Opens'}
+                        </span>
+                        <span className="font-mono font-extrabold text-sm text-rose-600">
+                          0
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-2 flex items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSecureContainerData(null);
+                        setUnavailableScreen(null);
+                        setInspectedRecord(null);
+                      }}
+                      className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold cursor-pointer"
+                    >
+                      {isAr ? 'اختيار ملف محمي آخر' : 'Select Another File'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 3. PASSWORD PROMPT GATE (Requirement #5) */}
+              {secureContainerData && !unavailableScreen && !openedViewerData && (
+                <div className="max-w-md mx-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xs space-y-5">
+                  <div className="text-center space-y-2">
+                    <div className="w-14 h-14 rounded-2xl bg-red-50 dark:bg-rose-950/60 border border-red-200 dark:border-rose-800 text-[#e5322d] flex items-center justify-center mx-auto">
+                      <Lock className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-lg font-extrabold text-[#111827] dark:text-white">
+                      {isAr ? '🔐 هذا الملف محمي' : '🔐 This File is Protected'}
+                    </h3>
+                    <p className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300 break-all">
+                      {secureContainerData.secureFileName}
+                    </p>
+                  </div>
+
+                  {inspectedRecord && (
+                    <div className="grid grid-cols-2 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs">
+                      <div>
+                        <span className="text-[11px] text-slate-400 block">
+                          {isAr ? 'الفتحات المتبقية:' : 'Remaining Opens:'}
+                        </span>
+                        <span className="font-mono font-extrabold text-[#111827] dark:text-white">
+                          {inspectedRecord.remainingOpens === null
+                            ? isAr
+                              ? 'بدون حد (∞)'
+                              : 'Unlimited (∞)'
+                            : `${inspectedRecord.remainingOpens} من ${inspectedRecord.maxOpens}`}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[11px] text-slate-400 block">
+                          {isAr ? 'مدة الصلاحية:' : 'Expiration:'}
+                        </span>
+                        <span className="font-bold text-[#111827] dark:text-white">
+                          {inspectedRecord.expirationLabel}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-extrabold text-[#111827] dark:text-slate-200 mb-2">
+                      {isAr ? 'أدخل كلمة المرور:' : 'Enter Password:'}
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showOpenPassword ? 'text' : 'password'}
+                        value={openPasswordInput}
+                        onChange={(e) => setOpenPasswordInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleUnlockAndOpenFile();
+                        }}
+                        placeholder="••••••••"
+                        autoFocus
+                        className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm text-[#111827] dark:text-white focus:outline-none focus:border-[#e5322d]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowOpenPassword((p) => !p)}
+                        className="absolute top-1/2 -translate-y-1/2 left-3 text-slate-400 hover:text-slate-700 cursor-pointer"
+                      >
+                        {showOpenPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {openErrorMsg && (
+                    <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>{openErrorMsg}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={isOpeningFile}
+                    onClick={handleUnlockAndOpenFile}
+                    className="w-full py-3 rounded-xl bg-[#e5322d] hover:bg-[#d12823] disabled:opacity-60 text-white text-sm font-extrabold shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <Unlock className="w-4 h-4" />
+                    <span>
+                      {isOpeningFile
+                        ? isAr
+                          ? 'جاري التحقق وفك التشفير...'
+                          : 'Verifying & Decrypting...'
+                        : isAr
+                        ? 'فتح الملف'
+                        : 'Open File'}
+                    </span>
+                  </button>
+
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSecureContainerData(null);
+                        setInspectedRecord(null);
+                        setOpenErrorMsg(null);
+                      }}
+                      className="text-xs font-bold text-slate-400 hover:text-slate-700 cursor-pointer"
+                    >
+                      {isAr ? 'اختيار ملف آخر' : 'Choose another file'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 4. SECURE VIEWER AFTER SUCCESSFUL ATOMIC OPEN */}
+              {openedViewerData && (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+                  {/* Viewer Top Security Bar */}
+                  <div className="bg-slate-900 text-white px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+                      <div>
+                        <div className="text-xs sm:text-sm font-extrabold flex items-center gap-2">
+                          <span>{openedViewerData.file.originalName}</span>
+                          <span className="text-[11px] font-mono text-emerald-400">
+                            [AES-256-GCM Secure Viewer]
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-300">
+                          {openedViewerData.message}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 text-xs">
+                      <span className="font-mono bg-slate-800 px-3 py-1 rounded-lg border border-slate-700">
+                        {isAr ? 'الفتحات المتبقية الآن:' : 'Remaining Opens:'}{' '}
+                        <strong
+                          className={
+                            openedViewerData.file.remainingOpens === 0
+                              ? 'text-rose-400'
+                              : 'text-emerald-400'
+                          }
+                        >
+                          {openedViewerData.file.remainingOpens === null
+                            ? '∞'
+                            : openedViewerData.file.remainingOpens}
+                        </strong>
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Close viewer and re-test opening the same file to demonstrate 1-time open blocking!
+                          const currentId = openedViewerData.file.fileId;
+                          setOpenedViewerData(null);
+                          setOpenPasswordInput('');
+                          inspectFileById(currentId);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-[#e5322d] hover:bg-[#d12823] text-white font-bold cursor-pointer"
+                      >
+                        {isAr
+                          ? 'إغلاق العارض واختبار محاولة فتح ثانية'
+                          : 'Close & Test Second Open Attempt'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Viewer Content Canvas (Protected from easy copy/context-menu) */}
+                  <div
+                    onContextMenu={(e) => e.preventDefault()}
+                    className="p-6 min-h-[340px] max-h-[60vh] overflow-y-auto select-none bg-[#FAFAFC] dark:bg-slate-950"
+                  >
+                    {/* WORD (.DOCX) VIEWER */}
+                    {openedViewerData.viewer.viewerType === 'word' && (
+                      <div className="max-w-3xl mx-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 sm:p-8 shadow-2xs">
+                        <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 font-bold mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+                          <FileText className="w-4 h-4" />
+                          <span>
+                            {isAr
+                              ? 'عارض مستندات Word الآمن (.docx) — وضع القراءة المحمية'
+                              : 'Secure Word Document Viewer (.docx) — Protected Read-Only'}
+                          </span>
+                        </div>
+                        <div
+                          className="prose prose-sm dark:prose-invert max-w-none leading-relaxed text-[#111827] dark:text-slate-100"
+                          dangerouslySetInnerHTML={{
+                            __html: openedViewerData.viewer.htmlContent || '',
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* EXCEL (.XLSX) VIEWER */}
+                    {openedViewerData.viewer.viewerType === 'excel' &&
+                      openedViewerData.viewer.sheets && (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400 font-bold">
+                              <FileSpreadsheet className="w-4 h-4" />
+                              <span>
+                                {isAr
+                                  ? 'عارض جداول Excel الآمن (.xlsx)'
+                                  : 'Secure Excel Spreadsheet Viewer (.xlsx)'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {openedViewerData.viewer.sheets.map((sh, idx) => (
+                                <button
+                                  key={sh.name}
+                                  type="button"
+                                  onClick={() => setActiveExcelSheetIdx(idx)}
+                                  className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer ${
+                                    activeExcelSheetIdx === idx
+                                      ? 'bg-emerald-600 text-white'
+                                      : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                  }`}
+                                >
+                                  {sh.name}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="overflow-x-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl">
+                            <table className="w-full text-xs border-collapse">
+                              <tbody>
+                                {(
+                                  openedViewerData.viewer.sheets[activeExcelSheetIdx]?.rows ||
+                                  []
+                                ).map((row, rIdx) => (
+                                  <tr
+                                    key={rIdx}
+                                    className={
+                                      rIdx === 0
+                                        ? 'bg-slate-100 dark:bg-slate-800 font-extrabold'
+                                        : 'border-t border-slate-100 dark:border-slate-800'
+                                    }
+                                  >
+                                    {row.map((cell, cIdx) => (
+                                      <td
+                                        key={cIdx}
+                                        className="px-3 py-2 border-x border-slate-100 dark:border-slate-800 text-slate-800 dark:text-slate-200"
+                                      >
+                                        {cell}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                    {/* POWERPOINT (.PPTX) VIEWER */}
+                    {openedViewerData.viewer.viewerType === 'powerpoint' &&
+                      openedViewerData.viewer.slides && (
+                        <div className="max-w-3xl mx-auto space-y-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-xs text-orange-600 dark:text-orange-400 font-bold">
+                              <Presentation className="w-4 h-4" />
+                              <span>
+                                {isAr
+                                  ? `عارض شرائح PowerPoint الآمن — شريحة ${activeSlideIdx + 1} من ${
+                                      openedViewerData.viewer.slides.length
+                                    }`
+                                  : `Secure PowerPoint Viewer — Slide ${activeSlideIdx + 1} of ${
+                                      openedViewerData.viewer.slides.length
+                                    }`}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={activeSlideIdx === 0}
+                                onClick={() => setActiveSlideIdx((i) => Math.max(0, i - 1))}
+                                className="px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold disabled:opacity-40 cursor-pointer"
+                              >
+                                {isAr ? 'السابق' : 'Prev'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={
+                                  activeSlideIdx >=
+                                  openedViewerData.viewer.slides.length - 1
+                                }
+                                onClick={() =>
+                                  setActiveSlideIdx((i) =>
+                                    Math.min(
+                                      (openedViewerData.viewer.slides?.length || 1) - 1,
+                                      i + 1
+                                    )
+                                  )
+                                }
+                                className="px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold disabled:opacity-40 cursor-pointer"
+                              >
+                                {isAr ? 'التالي' : 'Next'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {(() => {
+                            const slide =
+                              openedViewerData.viewer.slides[activeSlideIdx] ||
+                              openedViewerData.viewer.slides[0];
+                            return (
+                              <div className="aspect-video bg-white dark:bg-slate-900 border-2 border-orange-200 dark:border-orange-900/60 rounded-2xl p-8 flex flex-col justify-center shadow-sm">
+                                <div className="text-xs font-mono text-orange-500 mb-2">
+                                  SLIDE #{slide.slideNumber}
+                                </div>
+                                <h4 className="text-xl sm:text-2xl font-extrabold text-[#111827] dark:text-white mb-4">
+                                  {slide.title}
+                                </h4>
+                                <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300 list-disc list-inside">
+                                  {slide.bullets.map((b, idx) => (
+                                    <li key={idx}>{b}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+
+                    {/* PDF (.PDF) VIEWER */}
+                    {openedViewerData.viewer.viewerType === 'pdf' &&
+                      openedViewerData.viewer.pdfBase64 && (
+                        <div className="space-y-3">
+                          <div className="text-xs font-bold text-rose-600 dark:text-rose-400">
+                            {isAr
+                              ? 'عارض PDF الآمن داخل الجلسة المشفرة'
+                              : 'Secure In-Session PDF Viewer'}
+                          </div>
+                          <iframe
+                            title="Secure PDF Viewer"
+                            src={`data:application/pdf;base64,${openedViewerData.viewer.pdfBase64}#toolbar=0&navpanes=0`}
+                            className="w-full h-[460px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white"
+                          />
+                        </div>
+                      )}
+
+                    {/* ZIP (.ZIP) ARCHIVE INSPECTOR */}
+                    {openedViewerData.viewer.viewerType === 'zip' &&
+                      openedViewerData.viewer.zipEntries && (
+                        <div className="max-w-3xl mx-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
+                          <div className="flex items-center gap-2 text-xs font-bold text-violet-600 dark:text-violet-400">
+                            <FileArchive className="w-4 h-4" />
+                            <span>
+                              {isAr
+                                ? `محتويات الأرشيف المحمي (${openedViewerData.viewer.zipEntries.length} عنصر)`
+                                : `Protected ZIP Archive Contents (${openedViewerData.viewer.zipEntries.length} entries)`}
+                            </span>
+                          </div>
+                          <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                            {openedViewerData.viewer.zipEntries.map((entry, idx) => (
+                              <div
+                                key={idx}
+                                className="py-2 flex items-center justify-between"
+                              >
+                                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                  {entry.name}
+                                </span>
+                                <span className="font-mono text-slate-400">
+                                  {entry.isDirectory
+                                    ? isAr
+                                      ? 'مجلد'
+                                      : 'Folder'
+                                    : formatBytes(entry.sizeBytes)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ================================================================
+              TAB 3: PROTECTED FILES DASHBOARD (Requirement #9)
+             ================================================================ */}
+          {activeTab === 'dashboard' && (
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-extrabold text-[#111827] dark:text-white">
+                    {isAr
+                      ? 'لوحة التحكم بالملفات المحمية (Protected Files Dashboard)'
+                      : 'Protected Files Dashboard'}
+                  </h3>
+                  <p className="text-xs text-[#64748b] dark:text-slate-400">
+                    {isAr
+                      ? 'راقب عدد مرات الفتح، الفتحات المتبقية، تاريخ آخر فتح، أو قم بإلغاء صلاحية أي ملف فوراً.'
+                      : 'Monitor open counts, remaining opens, last opened time, or revoke/recreate files.'}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={fetchDashboardFiles}
+                    className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${isLoadingDashboard ? 'animate-spin' : ''}`}
+                    />
+                    <span>{isAr ? 'تحديث' : 'Refresh'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetEncryptWizard();
+                      setActiveTab('encrypt');
+                    }}
+                    className="px-4 py-2 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white text-xs font-bold cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>{isAr ? 'تشفير ملف جديد' : 'New Encrypted File'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {dashboardFiles.length === 0 ? (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-10 text-center space-y-3">
+                  <FolderLock className="w-10 h-10 text-slate-400 mx-auto" />
+                  <div className="text-sm font-extrabold text-[#111827] dark:text-white">
+                    {isAr
+                      ? 'لا توجد ملفات مشفرة في لوحة التحكم حالياً'
+                      : 'No protected files yet'}
+                  </div>
+                  <p className="text-xs text-[#64748b] dark:text-slate-400">
+                    {isAr
+                      ? 'ابدأ برفع ملف وتشفيره بخوارزمية AES-256-GCM ليظهر هنا مع إحصائيات الفتح المباشرة.'
+                      : 'Encrypt your first file with AES-256-GCM to track its open quota here.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-2xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-start">
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-extrabold">
+                          <th className="py-3.5 px-4 text-start">
+                            {isAr ? 'الملف' : 'File'}
+                          </th>
+                          <th className="py-3.5 px-4 text-start">
+                            {isAr ? 'مرات الفتح المسموحة' : 'Allowed Opens'}
+                          </th>
+                          <th className="py-3.5 px-4 text-start">
+                            {isAr ? 'المستخدم / المتبقي' : 'Used / Remaining'}
+                          </th>
+                          <th className="py-3.5 px-4 text-start">
+                            {isAr ? 'الصلاحية' : 'Expiration'}
+                          </th>
+                          <th className="py-3.5 px-4 text-start">
+                            {isAr ? 'الحالة' : 'Status'}
+                          </th>
+                          <th className="py-3.5 px-4 text-start">
+                            {isAr ? 'تاريخ آخر فتح' : 'Last Opened'}
+                          </th>
+                          <th className="py-3.5 px-4 text-end">
+                            {isAr ? 'الإجراءات' : 'Actions'}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {dashboardFiles.map((item) => (
+                          <tr
+                            key={item.fileId}
+                            className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
+                          >
+                            <td className="py-3.5 px-4">
+                              <div className="font-extrabold text-[#111827] dark:text-white">
+                                {item.originalName}
+                              </div>
+                              <div className="text-[11px] font-mono text-slate-400">
+                                {formatBytes(item.fileSize)} · ID: {item.fileId.slice(0, 8)}
+                              </div>
+                            </td>
+
+                            <td className="py-3.5 px-4 font-mono font-bold text-slate-700 dark:text-slate-300">
+                              {item.maxOpens === null
+                                ? isAr
+                                  ? 'بدون حد (∞)'
+                                  : 'Unlimited'
+                                : item.maxOpens}
+                            </td>
+
+                            <td className="py-3.5 px-4 font-mono">
+                              <span className="text-slate-500">
+                                {isAr ? 'المستخدم:' : 'Used:'} <strong>{item.usedOpens}</strong>
+                              </span>
+                              <span className="mx-1.5 text-slate-300">·</span>
+                              <span
+                                className={
+                                  item.remainingOpens === 0
+                                    ? 'text-rose-600 font-extrabold'
+                                    : 'text-emerald-600 dark:text-emerald-400 font-extrabold'
+                                }
+                              >
+                                {isAr ? 'المتبقي:' : 'Rem:'}{' '}
+                                {item.remainingOpens === null ? '∞' : item.remainingOpens}
+                              </span>
+                            </td>
+
+                            <td className="py-3.5 px-4 font-bold text-slate-700 dark:text-slate-300">
+                              {item.expirationLabel}
+                            </td>
+
+                            <td className="py-3.5 px-4">{renderStatusText(item.status)}</td>
+
+                            <td className="py-3.5 px-4 font-mono text-[11px] text-slate-500">
+                              {item.lastOpenedAt ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <Clock className="w-3 h-3 text-slate-400" />
+                                  {new Date(item.lastOpenedAt).toLocaleString(
+                                    isAr ? 'ar-MA' : 'en-US',
+                                    {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      second: '2-digit',
+                                    }
+                                  )}
+                                </span>
+                              ) : isAr ? (
+                                'لم يُفتح بعد'
+                              ) : (
+                                'Never opened'
+                              )}
+                            </td>
+
+                            <td className="py-3.5 px-4">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleLoadIntoOpener(item)}
+                                  title={isAr ? 'فتح / اختبار الملف' : 'Open / Test File'}
+                                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold cursor-pointer inline-flex items-center gap-1"
+                                >
+                                  <Unlock className="w-3.5 h-3.5 text-[#e5322d]" />
+                                  <span>{isAr ? 'فتح' : 'Open'}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleDownloadSecureFromDashboard(item.fileId, 'interactive')
+                                  }
+                                  title={
+                                    isAr
+                                      ? 'تحميل الملف المحمي التفاعلي (يفتح مباشرة ويطلب كلمة السر)'
+                                      : 'Download Interactive Protected File'
+                                  }
+                                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-[#e5322d] hover:border-[#e5322d] font-bold cursor-pointer inline-flex items-center gap-1"
+                                >
+                                  <Download className="w-3.5 h-3.5 text-[#e5322d]" />
+                                  <span>{isAr ? 'تحميل' : 'Download'}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleRecreateFile(item)}
+                                  title={
+                                    isAr
+                                      ? 'إعادة إنشاء / تفعيل الملف المحمي وتصفير العداد'
+                                      : 'Recreate / Reset Open Quota'
+                                  }
+                                  className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                </button>
+
+                                {item.status === 'active' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRevokeFile(item.fileId)}
+                                    title={isAr ? 'إلغاء صلاحية الملف فوراً' : 'Revoke Access'}
+                                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer"
+                                  >
+                                    <Ban className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteFile(item.fileId)}
+                                  title={isAr ? 'حذف الملف نهائياً' : 'Delete File'}
+                                  className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};

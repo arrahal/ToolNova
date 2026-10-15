@@ -18,6 +18,9 @@ import {
   Check,
   LogOut,
   Sparkles,
+  Lock,
+  Unlock,
+  LayoutDashboard,
 } from 'lucide-react';
 import {
   TOOLS_DATA,
@@ -39,6 +42,7 @@ import { WorkflowBuilderModal } from './components/WorkflowBuilderModal';
 import { AuthAccountModal, UserProfileData } from './components/AuthAccountModal';
 import { PricingPlansSection, PlanTierId } from './components/PricingPlansSection';
 import { SubscriptionUpgradeModal } from './components/SubscriptionUpgradeModal';
+import { FileProtectorModal, ProtectorTab } from './components/FileProtectorModal';
 import {
   auth,
   googleProvider,
@@ -72,6 +76,10 @@ export default function App() {
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [fileProtectorModalState, setFileProtectorModalState] = useState<{
+    isOpen: boolean;
+    tab: ProtectorTab;
+  }>({ isOpen: false, tab: 'encrypt' });
   const [userPhotoURL, setUserPhotoURL] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfileData | null>(() => {
     try {
@@ -236,6 +244,14 @@ export default function App() {
 
   const handleOpenTool = (tool: ToolItem) => {
     setSelectedCardId(tool.id);
+    if (tool.id === 'file-protector') {
+      setFileProtectorModalState({ isOpen: true, tab: 'encrypt' });
+      return;
+    }
+    if (tool.id === 'open-secure-file') {
+      setFileProtectorModalState({ isOpen: true, tab: 'open' });
+      return;
+    }
     const loc = getLocalizedTool(tool, language);
     setSelectedTool({
       ...tool,
@@ -405,6 +421,14 @@ export default function App() {
             <Crown className="w-3.5 h-3.5" />
             {t.pricingNavLabel}
           </a>
+          <button
+            type="button"
+            onClick={() => setFileProtectorModalState({ isOpen: true, tab: 'encrypt' })}
+            className="whitespace-nowrap shrink-0 py-1 text-[#111827] dark:text-white font-extrabold inline-flex items-center gap-1 hover:text-[#e5322d] dark:hover:text-rose-400 transition-colors cursor-pointer"
+          >
+            <Lock className="w-3.5 h-3.5 text-[#e5322d]" />
+            <span>{language === 'ar' ? 'تشفير الملفات وحمايتها' : 'File Protector'}</span>
+          </button>
         </nav>
 
         {/* Right Actions: Globe Language Popover + Theme Toggle + Email Login/Profile + Create Workflow */}
@@ -699,6 +723,56 @@ export default function App() {
                 </button>
               );
             })}
+          </div>
+
+          {/* Dedicated Quick-Access Banner for 🔐 File Protector Service */}
+          <div className="mt-4 max-w-3xl mx-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 sm:px-5 sm:py-3.5 shadow-2xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 text-start">
+              <div className="w-9 h-9 rounded-xl bg-red-50 dark:bg-rose-950/60 border border-red-200 dark:border-rose-800 flex items-center justify-center text-[#e5322d] shrink-0">
+                <Lock className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white">
+                  {language === 'ar'
+                    ? '🔐 خدمة تشفير الملفات وحمايتها (File Protector)'
+                    : '🔐 File Protector — AES-256-GCM Encryption & Open Limit'}
+                </div>
+                <div className="text-[11px] text-[#64748b] dark:text-slate-400">
+                  {language === 'ar'
+                    ? 'تشفير Word, Excel, PowerPoint, PDF, ZIP · تحديد عدد مرات الفتح (مرة واحدة أو أكثر) · عارض آمن ولوحة تحكم'
+                    : 'Encrypt Word, Excel, PowerPoint, PDF, ZIP · Atomic Open Limits · Secure Viewer & Dashboard'}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setFileProtectorModalState({ isOpen: true, tab: 'encrypt' })}
+                className="px-3.5 py-2 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white text-xs font-extrabold transition-colors cursor-pointer inline-flex items-center gap-1.5"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>{language === 'ar' ? 'تشفير ملف' : 'Encrypt File'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFileProtectorModalState({ isOpen: true, tab: 'open' })}
+                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 text-[#111827] dark:text-white text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5"
+              >
+                <Unlock className="w-3.5 h-3.5 text-emerald-600" />
+                <span>{language === 'ar' ? 'فتح ملف (.secure)' : 'Open .secure'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFileProtectorModalState({ isOpen: true, tab: 'dashboard' })}
+                className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1"
+              >
+                <LayoutDashboard className="w-3.5 h-3.5 text-slate-500" />
+                <span>{language === 'ar' ? 'لوحة التحكم' : 'Dashboard'}</span>
+              </button>
+            </div>
           </div>
         </section>
 
@@ -1067,6 +1141,17 @@ export default function App() {
       <ToolWorkspaceModal
         tool={selectedTool}
         onClose={() => setSelectedTool(null)}
+        onRecordHistory={handleRecordHistory}
+      />
+
+      <FileProtectorModal
+        isOpen={fileProtectorModalState.isOpen}
+        initialTab={fileProtectorModalState.tab}
+        language={language}
+        ownerId={currentUser?.uid || 'anonymous'}
+        onClose={() =>
+          setFileProtectorModalState((prev) => ({ ...prev, isOpen: false }))
+        }
         onRecordHistory={handleRecordHistory}
       />
 

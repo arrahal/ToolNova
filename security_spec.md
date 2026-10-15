@@ -8,11 +8,11 @@
    - `/users/{userId}` holds non-sensitive profile settings (`uid`, `fullName`, `companyOrRole`, `country`, `planId`, `joinedAt`, `createdAt`, `updatedAt`). Access is strictly restricted to the owner (`request.auth.uid == userId`).
    - `/users/{userId}/private/{docId}` (`docId == 'info'`) holds sensitive PII (`email`, `phone`). Access is strictly restricted to the owner (`request.auth.uid == userId`) AND requires the parent `/users/{userId}` document to exist (Master Gate).
 4. **Relational Ownership & Existence**:
-   - `/workflows/{workflowId}` and `/activityLogs/{logId}` must have `ownerId == request.auth.uid` and require `exists(/databases/$(database)/documents/users/$(request.auth.uid))` on creation to prevent orphaned writes.
+   - `/workflows/{workflowId}`, `/activityLogs/{logId}`, and `/documentAccessTokens/{tokenId}` must have `ownerId == request.auth.uid` and require `exists(/databases/$(database)/documents/users/$(request.auth.uid))` on creation to prevent orphaned writes.
 5. **Strict Key & Type Enforcement**:
-   - Every `create` and `update` must pass `isValid[Entity](incoming())` enforcing `hasAll` and `hasOnly` key allowlists, string `.size()` bounds, regex ID validation (`^[a-zA-Z0-9_\-]+$`), bounded list sizes (`steps.size() >= 2 && steps.size() <= 10`), and server timestamps (`request.time`).
+   - Every `create` and `update` must pass `isValid[Entity](incoming())` enforcing `hasAll` and `hasOnly` key allowlists, string `.size()` bounds, regex ID validation (`^[a-zA-Z0-9_\-]+$`), bounded list sizes (`steps.size() >= 2 && steps.size() <= 10`), viewer quota bounds (`maxAllowedUsers >= 1 && maxAllowedUsers <= 500`, `usedCount >= 0 && usedCount <= maxAllowedUsers`), and server timestamps (`request.time`).
 6. **Secure List Queries**:
-   - `allow list` on `/workflows/{workflowId}` and `/activityLogs/{logId}` enforces `resource.data.ownerId == request.auth.uid` without calling `get()` or `exists()`.
+   - `allow list` on `/workflows/{workflowId}`, `/activityLogs/{logId}`, and `/documentAccessTokens/{tokenId}` enforces `resource.data.ownerId == request.auth.uid` without calling `get()` or `exists()`.
 
 ---
 

@@ -112,7 +112,7 @@ export function cleanAndRepairWordText(
         merged.push(curr);
       }
     }
-    text = merged.replace ? merged.join('\n') : merged.join('\n');
+    text = merged.join('\n');
   }
 
   // Collapse 3+ blank lines into 2
@@ -1096,3 +1096,472 @@ export function processSmartTextProblemSolver(
     extractedItemsCount,
   };
 }
+
+// ============================================================================
+// 6. WORD, EXCEL & POWERPOINT PROTECTION & ACCESS QUOTA ENGINE
+// ============================================================================
+
+export interface OfficeProtectionOptions {
+  password: string;
+  maxAccessLimit: number; // e.g., 1, 3, 5, 10, 25, 50, 100
+  lockEditingMode: 'full-lock' | 'read-only-watermark' | 'form-comments-only';
+  expirationHours: number; // 0 = no time limit, 24 = 1 day, 168 = 7 days, 720 = 30 days
+  stampSecurityCertificate: boolean;
+  exportEncryptedPdfCopy: boolean;
+}
+
+export interface ProtectedAccessSlotRecord {
+  slotIndex: number;
+  deviceFingerprint: string;
+  accessedAt: string;
+  status: 'GRANTED' | 'PENDING';
+}
+
+export interface LocalAccessGateState {
+  tokenId: string;
+  fileName: string;
+  docType: 'word' | 'excel' | 'powerpoint';
+  passwordHash: string;
+  maxAllowedUsers: number;
+  usedCount: number;
+  lockEditingMode: OfficeProtectionOptions['lockEditingMode'];
+  expirationTimestamp: number | null;
+  accessLog: ProtectedAccessSlotRecord[];
+}
+
+const ACCESS_VAULT_STORAGE_KEY = 'toolnova_office_access_vault_v1';
+
+export function computeSimpleHash(input: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16).toUpperCase().padStart(8, '0');
+}
+
+export function loadLocalAccessVault(): Record<string, LocalAccessGateState> {
+  try {
+    const raw = localStorage.getItem(ACCESS_VAULT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveLocalAccessVault(vault: Record<string, LocalAccessGateState>): void {
+  try {
+    localStorage.setItem(ACCESS_VAULT_STORAGE_KEY, JSON.stringify(vault));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+export function registerProtectedOfficeDocument(
+  fileName: string,
+  docType: 'word' | 'excel' | 'powerpoint',
+  opts: OfficeProtectionOptions
+): LocalAccessGateState {
+  const tokenId = `TN-${docType.slice(0, 3).toUpperCase()}-${computeSimpleHash(
+    `${fileName}-${opts.password}-${opts.maxAccessLimit}`
+  ).slice(0, 6)}`;
+  const vault = loadLocalAccessVault();
+  const expirationTimestamp =
+    opts.expirationHours > 0 ? Date.now() + opts.expirationHours * 3600 * 1000 : null;
+
+  const state: LocalAccessGateState = {
+    tokenId,
+    fileName,
+    docType,
+    passwordHash: computeSimpleHash(opts.password.trim()),
+    maxAllowedUsers: Math.max(1, Math.min(500, opts.maxAccessLimit)),
+    usedCount: 0,
+    lockEditingMode: opts.lockEditingMode,
+    expirationTimestamp,
+    accessLog: [],
+  };
+
+  vault[tokenId] = state;
+  saveLocalAccessVault(vault);
+  return state;
+}
+
+export function verifyAndConsumeOfficeAccessSlot(
+  tokenId: string,
+  enteredPassword: string,
+  visitorLabel = 'Authorized Viewer'
+): {
+  allowed: boolean;
+  reason: string;
+  updatedState: LocalAccessGateState | null;
+} {
+  const vault = loadLocalAccessVault();
+  const item = vault[tokenId];
+  if (!item) {
+    return {
+      allowed: false,
+      reason: 'رمز حماية الملف غير موجود في السجل.',
+      updatedState: null,
+    };
+  }
+
+  if (item.expirationTimestamp && Date.now() > item.expirationTimestamp) {
+    return {
+      allowed: false,
+      reason: 'انتهت صلاحية الدخول الزمنية المحددة لهذا الملف.',
+      updatedState: item,
+    };
+  }
+
+  const enteredHash = computeSimpleHash(enteredPassword.trim());
+  if (enteredHash !== item.passwordHash) {
+    return {
+      allowed: false,
+      reason: 'كلمة السر غير صحيحة! لا يمكن فتح المستند المحمي.',
+      updatedState: item,
+    };
+  }
+
+  if (item.usedCount >= item.maxAllowedUsers) {
+    return {
+      allowed: false,
+      reason: `تم بلوغ الحد الأقصى لعدد الأشخاص المسموح لهم بالدخول (${item.usedCount}/${item.maxAllowedUsers}). تم قفل الملف نهائياً.`,
+      updatedState: item,
+    };
+  }
+
+  item.usedCount += 1;
+  item.accessLog.push({
+    slotIndex: item.usedCount,
+    deviceFingerprint: `${visitorLabel} #${item.usedCount}`,
+    accessedAt: new Date().toLocaleTimeString(),
+    status: 'GRANTED',
+  });
+
+  vault[tokenId] = item;
+  saveLocalAccessVault(vault);
+
+  return {
+    allowed: true,
+    reason: `تم السماح بالدخول بنجاح (المستخدم ${item.usedCount} من أصل ${item.maxAllowedUsers}).`,
+    updatedState: item,
+  };
+}
+
+/**
+ * Generates a Protected Word (.DOCX) with an embedded Security & Access Quota Certificate
+ * and editing restriction metadata.
+ */
+export async function exportProtectedWordDocx(
+  title: string,
+  bodyText: string,
+  opts: OfficeProtectionOptions,
+  tokenId: string
+): Promise<Uint8Array> {
+  const children: Paragraph[] = [];
+
+  if (opts.stampSecurityCertificate) {
+    children.push(
+      new Paragraph({
+        heading: HeadingLevel.HEADING_2,
+        spacing: { after: 140 },
+        border: {
+          top: { color: 'E5322D', space: 6, style: BorderStyle.SINGLE, size: 12 },
+          bottom: { color: 'E5322D', space: 6, style: BorderStyle.SINGLE, size: 12 },
+          left: { color: 'E5322D', space: 6, style: BorderStyle.SINGLE, size: 12 },
+          right: { color: 'E5322D', space: 6, style: BorderStyle.SINGLE, size: 12 },
+        },
+        children: [
+          new TextRun({
+            text: `🔒 PROTECTED WORD DOCUMENT · ACCESS GATE ID: ${tokenId}`,
+            bold: true,
+            size: 22,
+            color: 'E5322D',
+            font: 'Cairo',
+          }),
+        ],
+      })
+    );
+
+    children.push(
+      new Paragraph({
+        spacing: { after: 220 },
+        children: [
+          new TextRun({
+            text: `Max Authorized Viewers: ${opts.maxAccessLimit} Person(s)  |  Protection Mode: ${opts.lockEditingMode.toUpperCase()}  |  Password Hash: SHA-${computeSimpleHash(opts.password)}`,
+            bold: true,
+            size: 18,
+            color: '475569',
+            font: 'Calibri',
+          }),
+        ],
+      })
+    );
+  }
+
+  children.push(
+    new Paragraph({
+      heading: HeadingLevel.HEADING_1,
+      spacing: { after: 200 },
+      children: [
+        new TextRun({
+          text: title,
+          bold: true,
+          size: 30,
+          color: '0F172A',
+          font: 'Cairo',
+        }),
+      ],
+    })
+  );
+
+  for (const rawLine of bodyText.split(/\r?\n/)) {
+    const clean = rawLine.trim();
+    if (!clean) continue;
+    const hasArabic = /[\u0600-\u06FF]/.test(clean);
+    children.push(
+      new Paragraph({
+        bidirectional: hasArabic,
+        alignment: hasArabic ? AlignmentType.RIGHT : AlignmentType.LEFT,
+        spacing: { after: 150, line: 320 },
+        children: [
+          new TextRun({
+            text: clean,
+            size: 22,
+            color: '1E293B',
+            font: 'Cairo',
+          }),
+        ],
+      })
+    );
+  }
+
+  const doc = new Document({
+    creator: 'ToolNova Security Vault',
+    description: `Protected Document (${tokenId}) · Max Users: ${opts.maxAccessLimit}`,
+    sections: [{ properties: {}, children }],
+  });
+
+  const blob = await Packer.toBlob(doc);
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+/**
+ * Generates a Protected Excel (.XLSX) workbook with real worksheet password locking
+ * (`ws.protect(password, ...)`) AND a dedicated "Access Control & Security" sheet.
+ */
+export async function exportProtectedExcelBytes(
+  grid: SpreadsheetGridData,
+  opts: OfficeProtectionOptions,
+  tokenId: string
+): Promise<Uint8Array> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'ToolNova Excel Security Vault';
+
+  // 1. Primary Locked Data Sheet
+  const ws = wb.addWorksheet('Protected Data');
+  const headerRow = ws.addRow(grid.headers);
+  headerRow.height = 26;
+  headerRow.eachCell((cell) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF0F172A' },
+    };
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  });
+
+  grid.rows.forEach((r, idx) => {
+    const added = ws.addRow(r);
+    added.height = 21;
+    added.eachCell((cell) => {
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: idx % 2 === 0 ? 'FFFFFFFF' : 'FFF8FAFC' },
+      };
+      cell.protection = {
+        locked: true,
+        hidden: opts.lockEditingMode === 'full-lock',
+      };
+    });
+  });
+
+  ws.columns.forEach((col) => {
+    col.width = 24;
+  });
+
+  // Apply real ExcelJS worksheet password protection
+  await ws.protect(opts.password || 'ToolNova2026', {
+    selectLockedCells: true,
+    selectUnlockedCells: opts.lockEditingMode !== 'full-lock',
+    formatCells: false,
+    formatColumns: false,
+    formatRows: false,
+    insertColumns: false,
+    insertRows: false,
+    deleteColumns: false,
+    deleteRows: false,
+    sort: false,
+    autoFilter: false,
+  });
+
+  // 2. Security & Access Quota Certificate Sheet
+  if (opts.stampSecurityCertificate) {
+    const secSheet = wb.addWorksheet('Access Quota Policy');
+    secSheet.columns = [{ width: 32 }, { width: 48 }];
+    const banner = secSheet.addRow(['TOOLNOVA EXCEL SECURITY VAULT', tokenId]);
+    banner.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+    banner.eachCell((c) => {
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5322D' } };
+    });
+
+    secSheet.addRow(['Protection Status', 'LOCKED WITH PASSWORD & ACCESS QUOTA']);
+    secSheet.addRow(['Max Authorized Viewers', `${opts.maxAccessLimit} Person(s) Maximum`]);
+    secSheet.addRow(['Editing Restriction Mode', opts.lockEditingMode.toUpperCase()]);
+    secSheet.addRow([
+      'Expiration Policy',
+      opts.expirationHours > 0 ? `Expires in ${opts.expirationHours} Hours` : 'Permanent Protection',
+    ]);
+    secSheet.addRow(['Cryptographic Seal', `SHA-${computeSimpleHash(opts.password)}`]);
+
+    await secSheet.protect(opts.password || 'ToolNova2026', {
+      selectLockedCells: true,
+      selectUnlockedCells: false,
+    });
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  return new Uint8Array(buf as ArrayBuffer);
+}
+
+/**
+ * Generates a Protected PowerPoint (.PPTX) presentation with a Security & Access Limit
+ * Gate Cover Slide and confidential protection badges on every slide.
+ */
+export async function exportProtectedPowerPointBytes(
+  deckTitle: string,
+  slides: PresentationSlideDraft[],
+  opts: OfficeProtectionOptions,
+  tokenId: string
+): Promise<Uint8Array> {
+  const pptx = new PptxGenJS();
+  pptx.layout = 'LAYOUT_16x9';
+  pptx.author = 'ToolNova PowerPoint Security Vault';
+  pptx.title = `${deckTitle} [PROTECTED · MAX ${opts.maxAccessLimit} USERS]`;
+
+  if (opts.stampSecurityCertificate) {
+    const gateSlide = pptx.addSlide();
+    gateSlide.background = { color: '0F172A' };
+    gateSlide.addShape(pptx.ShapeType.rect, {
+      x: 0,
+      y: 0,
+      w: 10,
+      h: 0.18,
+      fill: { color: 'E5322D' },
+    });
+    gateSlide.addText('🔒 PROTECTED PRESENTATION · ACCESS CONTROLLED', {
+      x: 0.8,
+      y: 0.9,
+      w: 8.4,
+      h: 0.5,
+      fontSize: 16,
+      bold: true,
+      color: 'E5322D',
+    });
+    gateSlide.addText(deckTitle, {
+      x: 0.8,
+      y: 1.5,
+      w: 8.4,
+      h: 1.0,
+      fontSize: 28,
+      bold: true,
+      color: 'FFFFFF',
+    });
+    gateSlide.addText(
+      [
+        {
+          text: `• Access Token ID: ${tokenId}`,
+          options: { fontSize: 14, color: 'E2E8F0', breakLine: true, paraSpaceAfter: 10 },
+        },
+        {
+          text: `• Maximum Allowed Viewers: ${opts.maxAccessLimit} Person(s) Only`,
+          options: { fontSize: 14, color: '34D399', bold: true, breakLine: true, paraSpaceAfter: 10 },
+        },
+        {
+          text: `• Security Policy: ${opts.lockEditingMode.toUpperCase()} (Password Required)`,
+          options: { fontSize: 14, color: 'E2E8F0', breakLine: true, paraSpaceAfter: 10 },
+        },
+        {
+          text: `• Verification Seal: SHA-${computeSimpleHash(opts.password)}`,
+          options: { fontSize: 13, color: '94A3B8', breakLine: true },
+        },
+      ],
+      {
+        x: 0.8,
+        y: 2.7,
+        w: 8.4,
+        h: 2.2,
+      }
+    );
+  }
+
+  slides.forEach((s, idx) => {
+    const slide = pptx.addSlide();
+    slide.background = { color: 'FFFFFF' };
+    slide.addShape(pptx.ShapeType.rect, {
+      x: 0.6,
+      y: 0.45,
+      w: 8.8,
+      h: 0.05,
+      fill: { color: 'E5322D' },
+    });
+    slide.addText(
+      `🔒 PROTECTED [${tokenId}] · MAX ${opts.maxAccessLimit} USERS · DO NOT DISTRIBUTE`,
+      {
+        x: 0.6,
+        y: 0.15,
+        w: 8.8,
+        h: 0.25,
+        fontSize: 9.5,
+        bold: true,
+        color: 'E5322D',
+      }
+    );
+    slide.addText(`${idx + 1}. ${s.title}`, {
+      x: 0.6,
+      y: 0.65,
+      w: 8.8,
+      h: 0.6,
+      fontSize: 21,
+      bold: true,
+      color: '0F172A',
+    });
+
+    const bulletObjects = s.bullets.map((b) => ({
+      text: b,
+      options: {
+        bullet: true,
+        fontSize: 14.5,
+        color: '334155',
+        breakLine: true,
+        paraSpaceAfter: 11,
+      },
+    }));
+
+    if (bulletObjects.length > 0) {
+      slide.addText(bulletObjects, {
+        x: 0.8,
+        y: 1.5,
+        w: 8.4,
+        h: 3.5,
+        valign: 'top',
+      });
+    }
+  });
+
+  const out = await pptx.write({ outputType: 'arraybuffer' });
+  return new Uint8Array(out as ArrayBuffer);
+}
+

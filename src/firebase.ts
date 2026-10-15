@@ -408,3 +408,136 @@ export function subscribeToUserWorkspace(
 }
 
 export { signInWithPopup, firebaseSignOut };
+
+export interface FirestoreDocumentAccessTokenData {
+  id: string;
+  ownerId: string;
+  fileName: string;
+  docType: 'word' | 'excel' | 'powerpoint';
+  passwordHash: string;
+  maxAllowedUsers: number;
+  usedCount: number;
+  lockEditingMode: 'full-lock' | 'read-only-watermark' | 'form-comments-only';
+}
+
+/**
+ * Create or update a DocumentAccessToken record in Firestore (/documentAccessTokens/{tokenId})
+ * when a signed-in verified user locks a Word, Excel, or PowerPoint file.
+ */
+export async function saveDocumentAccessTokenToFirestore(
+  tokenData: FirestoreDocumentAccessTokenData
+): Promise<boolean> {
+  const user = auth.currentUser;
+  if (!user || !user.emailVerified) return false;
+
+  const cleanUid = sanitizeId(user.uid);
+  const cleanTokenId = sanitizeId(tokenData.id);
+  const tokenRef = doc(db, 'documentAccessTokens', cleanTokenId);
+
+  const safeFileName = clampString(tokenData.fileName, 1, 180, 'Protected_Document.docx');
+  const safeDocType: 'word' | 'excel' | 'powerpoint' =
+    tokenData.docType === 'word' ||
+    tokenData.docType === 'excel' ||
+    tokenData.docType === 'powerpoint'
+      ? tokenData.docType
+      : 'word';
+  const safePassHash = clampString(tokenData.passwordHash, 4, 128, '00000000');
+  const safeMax = Math.max(1, Math.min(500, Math.round(tokenData.maxAllowedUsers || 1)));
+  const safeUsed = Math.max(0, Math.min(safeMax, Math.round(tokenData.usedCount || 0)));
+  const safeMode: 'full-lock' | 'read-only-watermark' | 'form-comments-only' =
+    tokenData.lockEditingMode === 'full-lock' ||
+    tokenData.lockEditingMode === 'read-only-watermark' ||
+    tokenData.lockEditingMode === 'form-comments-only'
+      ? tokenData.lockEditingMode
+      : 'full-lock';
+
+  let existingSnap;
+  try {
+    existingSnap = await getDoc(tokenRef);
+  } catch {
+    return false;
+  }
+
+  if (!existingSnap.exists()) {
+    try {
+      await setDoc(tokenRef, {
+        id: cleanTokenId,
+        ownerId: cleanUid,
+        fileName: safeFileName,
+        docType: safeDocType,
+        passwordHash: safePassHash,
+        maxAllowedUsers: safeMax,
+        usedCount: 0,
+        lockEditingMode: safeMode,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `documentAccessTokens/${cleanTokenId}`);
+    }
+  } else {
+    try {
+      await updateDoc(tokenRef, {
+        fileName: safeFileName,
+        passwordHash: safePassHash,
+        maxAllowedUsers: safeMax,
+        usedCount: safeUsed,
+        lockEditingMode: safeMode,
+        updatedAt: serverTimestamp(),
+      });
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `documentAccessTokens/${cleanTokenId}`);
+    }
+  }
+}
+
+export async function fetchDocumentAccessTokenFromFirestore(
+  tokenId: string
+): Promise<FirestoreDocumentAccessTokenData | null> {
+  const user = auth.currentUser;
+  if (!user) return null;
+  const cleanTokenId = sanitizeId(tokenId);
+  try {
+    const snap = await getDoc(doc(db, 'documentAccessTokens', cleanTokenId));
+    if (!snap.exists()) return null;
+    const d = snap.data();
+    return {
+      id: String(d.id || cleanTokenId),
+      ownerId: String(d.ownerId || user.uid),
+      fileName: String(d.fileName || 'Protected_Document.docx'),
+      docType:
+        d.docType === 'excel' || d.docType === 'powerpoint' ? d.docType : 'word',
+      passwordHash: String(d.passwordHash || ''),
+      maxAllowedUsers: Number(d.maxAllowedUsers) || 1,
+      usedCount: Number(d.usedCount) || 0,
+      lockEditingMode:
+        d.lockEditingMode === 'read-only-watermark' ||
+        d.lockEditingMode === 'form-comments-only'
+          ? d.lockEditingMode
+          : 'full-lock',
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function incrementDocumentAccessTokenUsedCountInFirestore(
+  tokenId: string,
+  newUsedCount: number
+): Promise<boolean> {
+  const user = auth.currentUser;
+  if (!user || !user.emailVerified) return false;
+  const cleanTokenId = sanitizeId(tokenId);
+  try {
+    await updateDoc(doc(db, 'documentAccessTokens', cleanTokenId), {
+      usedCount: newUsedCount,
+      updatedAt: serverTimestamp(),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
