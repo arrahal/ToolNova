@@ -561,16 +561,29 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     let cancelled = false;
     (async () => {
       try {
-        // For protect-pdf, render from the original source file bytes so the preview
-        // always displays the user's real document content cleanly!
-        const bytesToRender =
-          tool.id === 'protect-pdf' && pdfFiles[0]
-            ? pdfFiles[0].bytes
-            : pdfResult.mimeType === 'application/zip' && pdfResult.extraFiles && pdfResult.extraFiles.length > 0
-            ? (pdfResult.extraFiles[previewPageNum - 1]?.bytes || pdfResult.extraFiles[0].bytes)
-            : pdfResult.outputBytes;
-        const pageToRender =
-          pdfResult.mimeType === 'application/zip' ? 1 : previewPageNum;
+        // Always render from the original uploaded source file bytes for PDF tools
+        // so the preview displays the user's real uploaded document pages cleanly!
+        const useOriginalSource =
+          pdfFiles[0] &&
+          [
+            'split-pdf',
+            'compress-pdf',
+            'rotate-pdf',
+            'watermark-pdf',
+            'page-numbers-pdf',
+            'edit-pdf',
+            'protect-pdf',
+            'unlock-pdf',
+            'organize-pdf',
+          ].includes(tool.id);
+
+        const bytesToRender = useOriginalSource
+          ? pdfFiles[0].bytes
+          : pdfResult.mimeType === 'application/zip' && pdfResult.extraFiles && pdfResult.extraFiles.length > 0
+          ? (pdfResult.extraFiles[previewPageNum - 1]?.bytes || pdfResult.extraFiles[0].bytes)
+          : pdfResult.outputBytes;
+
+        const pageToRender = previewPageNum;
         const rendered = await renderPdfPageToCanvas(
           bytesToRender,
           pageToRender,
@@ -585,7 +598,9 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
           ctx.drawImage(rendered.canvas, 0, 0);
         }
         setPreviewTotalPages(
-          pdfResult.mimeType === 'application/zip' && pdfResult.extraFiles
+          useOriginalSource && pdfFiles[0]?.pageCount
+            ? pdfFiles[0].pageCount
+            : pdfResult.mimeType === 'application/zip' && pdfResult.extraFiles
             ? pdfResult.extraFiles.length
             : rendered.totalPages
         );
@@ -1907,9 +1922,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                       <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
                         <span className="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                           {tool.id === 'split-pdf' && <Scissors className="w-3.5 h-3.5 text-rose-600" />}
-                          {tool.id === 'split-pdf'
-                            ? `معاينة الصفحات المقسمة المستخرجة (${previewTotalPages} صفحة)`
-                            : `Live Output PDF Preview (${pdfResult.pageCount} Total Pages)`}
+                          {`معاينة صفحات الملف المرفوع الأصلي (${pdfFiles[0]?.pageCount || previewTotalPages} صفحة)`}
                         </span>
                         <div className="flex items-center gap-2">
                           <button
