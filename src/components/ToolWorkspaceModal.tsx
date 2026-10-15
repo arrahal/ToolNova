@@ -583,29 +583,6 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
         const ctx = targetCanvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(rendered.canvas, 0, 0);
-          if (tool.id === 'protect-pdf') {
-            const effectivePw = pdfPassword.trim() || '1234';
-            ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
-            ctx.fillRect(0, 0, targetCanvas.width, 46);
-            ctx.fillStyle = '#38BDF8';
-            ctx.font = 'bold 14px "Plus Jakarta Sans", sans-serif';
-            ctx.fillText(
-              `🔒 مشفر بـ AES-256 (كلمة السر: ${effectivePw}) — سيظهر هذا المحتوى الحقيقي فور إدخال كلمة السر`,
-              18,
-              28
-            );
-          } else if (pdfResult.mimeType === 'application/zip' && pdfResult.extraFiles) {
-            const currentItem = pdfResult.extraFiles[previewPageNum - 1] || pdfResult.extraFiles[0];
-            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-            ctx.fillRect(0, 0, targetCanvas.width, 38);
-            ctx.fillStyle = '#34D399';
-            ctx.font = 'bold 13px "Plus Jakarta Sans", sans-serif';
-            ctx.fillText(
-              `✂️ ملف مستقل: ${currentItem?.name || ''} (صفحة ${previewPageNum} من ${pdfResult.extraFiles.length})`,
-              16,
-              24
-            );
-          }
         }
         setPreviewTotalPages(
           pdfResult.mimeType === 'application/zip' && pdfResult.extraFiles
