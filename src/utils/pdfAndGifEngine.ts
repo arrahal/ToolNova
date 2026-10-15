@@ -17,6 +17,8 @@ import {
   ImageRun,
   TabStopType,
   VerticalAlign,
+  HeightRule,
+  PageBreak,
 } from 'docx';
 
 // Configure Mozilla PDF.js worker for Vite
@@ -40,6 +42,16 @@ export interface ReconstructedLine {
   fullText: string;
 }
 
+export interface ExtractedPdfImage {
+  x: number;
+  topY: number;
+  width: number;
+  height: number;
+  aspectRatio: number;
+  dataUrl?: string;
+  bytes?: Uint8Array;
+}
+
 export interface ExtractedPdfPage {
   pageNumber: number;
   width: number;
@@ -52,6 +64,7 @@ export interface ExtractedPdfPage {
   extractedPhotoPngBytes?: Uint8Array;
   extractedPhotoDataUrl?: string;
   extractedPhotoAspect?: number; // width / height
+  images: ExtractedPdfImage[];
   leftLines: ReconstructedLine[];
   rightLines: ReconstructedLine[];
   lines: {
@@ -188,6 +201,17 @@ export async function extractRealPdfContent(
           sidebarBgHex: 'F8FAFC',
           accentHex: 'C86D3B',
           splitRatio: 0.34,
+          images: [
+            {
+              x: 0,
+              topY: 0,
+              width: canvas.width,
+              height: canvas.height,
+              aspectRatio: canvas.width / (canvas.height || 1),
+              dataUrl: pageDataUrl,
+              bytes: dataUrlToUint8Array(pageDataUrl),
+            },
+          ],
           leftLines: [],
           rightLines: [],
           lines: [],
@@ -348,6 +372,134 @@ export async function extractRealPdfContent(
       }
     }
 
+    // 3. Detect embedded images via PDF.js Operator List + CTM tracking
+    const pageImages: ExtractedPdfImage[] = [];
+    try {
+      const ops = await page.getOperatorList();
+      const matrixStack: number[][] = [[1, 0, 0, 1, 0, 0]];
+
+      const multMat = (m1: number[], m2: number[]) => [
+        m1[0] * m2[0] + m1[2] * m2[1],
+        m1[1] * m2[0] + m1[3] * m2[1],
+        m1[0] * m2[2] + m1[2] * m2[3],
+        m1[1] * m2[2] + m1[3] * m2[3],
+        m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+        m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
+      ];
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const opsObj = (pdfjsLib as any).OPS || {};
+      const saveOp = opsObj.save ?? 10;
+      const restoreOp = opsObj.restore ?? 11;
+      const transformOp = opsObj.transform ?? 12;
+      const paintImgXOp = opsObj.paintImageXObject ?? 82;
+      const paintInlineImgOp = opsObj.paintInlineImageXObject ?? 83;
+      const paintMaskOp = opsObj.paintImageMaskXObject ?? 84;
+
+      for (let opIdx = 0; opIdx < ops.fnArray.length; opIdx++) {
+        const fn = ops.fnArray[opIdx];
+        const args = ops.argsArray[opIdx];
+
+        if (fn === saveOp) {
+          matrixStack.push([...matrixStack[matrixStack.length - 1]]);
+        } else if (fn === restoreOp) {
+          if (matrixStack.length > 1) matrixStack.pop();
+        } else if (fn === transformOp) {
+          if (Array.isArray(args) && args.length >= 6) {
+            const current = matrixStack[matrixStack.length - 1];
+            matrixStack[matrixStack.length - 1] = multMat(current, args);
+          }
+        } else if (fn === paintImgXOp || fn === paintInlineImgOp || fn === paintMaskOp) {
+          const ctm = matrixStack[matrixStack.length - 1];
+          const scaleX = Math.hypot(ctm[0], ctm[1]);
+          const scaleY = Math.hypot(ctm[2], ctm[3]);
+          const transX = ctm[4];
+          const transY = ctm[5];
+
+          const w = Math.round(scaleX);
+          const h = Math.round(scaleY);
+          const x = Math.round(transX);
+          const topY = Math.max(0, Math.round(pageH - (transY + scaleY)));
+
+          const isTiny = w < 20 || h < 20;
+          const isFullBg = w >= pageW * 0.96 && h >= pageH * 0.96;
+          const isDup = pageImages.some(
+            (other) =>
+              Math.abs(other.x - x) < 12 &&
+              Math.abs(other.topY - topY) < 12 &&
+              Math.abs(other.width - w) < 12
+          );
+
+          if (!isTiny && !isFullBg && !isDup) {
+            pageImages.push({
+              x,
+              topY,
+              width: w,
+              height: h,
+              aspectRatio: h > 0 ? w / h : 1,
+            });
+          }
+        }
+      }
+    } catch {
+      // Safe fallback if operator list parsing encounters any issue
+    }
+
+    // Crop thumbnails and bytes for each detected image
+    for (const img of pageImages) {
+      try {
+        const cropX = Math.max(0, Math.min(canvas.width - 2, Math.floor(img.x * renderScale)));
+        const cropY = Math.max(0, Math.min(canvas.height - 2, Math.floor(img.topY * renderScale)));
+        const cropW = Math.max(2, Math.min(canvas.width - cropX, Math.floor(img.width * renderScale)));
+        const cropH = Math.max(2, Math.min(canvas.height - cropY, Math.floor(img.height * renderScale)));
+
+        if (cropW > 10 && cropH > 10) {
+          const imgData = ctx.getImageData(cropX, cropY, cropW, cropH);
+          const offscreen = document.createElement('canvas');
+          offscreen.width = cropW;
+          offscreen.height = cropH;
+          const offCtx = offscreen.getContext('2d')!;
+          offCtx.putImageData(imgData, 0, 0);
+          img.dataUrl = offscreen.toDataURL('image/jpeg', 0.85);
+          img.bytes = dataUrlToUint8Array(img.dataUrl);
+        }
+      } catch {
+        // Safe skip
+      }
+    }
+
+    // If profile photo was detected and not yet in pageImages, insert it
+    if (extractedPhotoPngBytes && extractedPhotoDataUrl) {
+      const photoW = Math.round((canvas.width * (splitRatio - 0.06)) / renderScale);
+      const photoH = Math.round(photoW / extractedPhotoAspect);
+      const hasOverlap = pageImages.some((im) => im.x < pageW * splitRatio && im.topY < 160);
+      if (!hasOverlap) {
+        pageImages.unshift({
+          x: Math.round(pageW * 0.03),
+          topY: Math.round(pageH * 0.025),
+          width: photoW,
+          height: photoH,
+          aspectRatio: extractedPhotoAspect,
+          dataUrl: extractedPhotoDataUrl,
+          bytes: extractedPhotoPngBytes,
+        });
+      }
+    }
+
+    // If document is purely an image/scanned page without text
+    if (rawItems.length === 0 && pageImages.length === 0) {
+      const fullUrl = canvas.toDataURL('image/jpeg', 0.88);
+      pageImages.push({
+        x: 0,
+        topY: 0,
+        width: Math.round(pageW),
+        height: Math.round(pageH),
+        aspectRatio: pageW / (pageH || 1),
+        dataUrl: fullUrl,
+        bytes: dataUrlToUint8Array(fullUrl),
+      });
+    }
+
     // Legacy single-list lines for Markdown/Excel compatibility
     const allLines = isTwoColumn
       ? [...leftLines, ...rightLines]
@@ -370,6 +522,7 @@ export async function extractRealPdfContent(
       extractedPhotoPngBytes,
       extractedPhotoDataUrl,
       extractedPhotoAspect,
+      images: pageImages,
       leftLines,
       rightLines,
       lines: allLines.map((l) => ({
@@ -426,44 +579,249 @@ function splitJobTitleAndDate(line: ReconstructedLine, pageWidth: number): {
   return { leftTitle: line.fullText, rightDate: null };
 }
 
+export interface DocxGenerationOptions {
+  includeFullPageSnapshot?: boolean;
+  imageMode?: 'framed-placeholder' | 'framed-with-image' | 'no-frames';
+  preservePageBreaks?: boolean;
+}
+
+function createImagePlaceholderDocxBox(
+  image: ExtractedPdfImage,
+  maxAvailableWidthDxa: number,
+  imageMode: 'framed-placeholder' | 'framed-with-image' | 'no-frames' = 'framed-placeholder'
+): Table {
+  const maxWidthPt = maxAvailableWidthDxa / 20;
+  const targetWidthPt = Math.max(120, Math.min(image.width, maxWidthPt));
+  const targetHeightPt = Math.max(45, Math.min(image.height, 460));
+  const targetWidthDxa = Math.round(targetWidthPt * 20);
+  const targetHeightDxa = Math.round(targetHeightPt * 20);
+
+  const cellChildren: Paragraph[] = [];
+
+  if (imageMode === 'framed-with-image' && image.bytes) {
+    cellChildren.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 80, after: 60 },
+        children: [
+          new ImageRun({
+            data: image.bytes,
+            transformation: {
+              width: Math.min(targetWidthPt - 20, 420),
+              height: Math.min(targetHeightPt - 20, 380),
+            },
+            type: 'jpg',
+          }),
+        ],
+      }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 0, after: 80 },
+        children: [
+          new TextRun({
+            text: `[ صورة / Image: ${Math.round(image.width)} × ${Math.round(image.height)} pt ]`,
+            color: '64748B',
+            size: 18,
+            font: 'Calibri',
+          }),
+        ],
+      })
+    );
+  } else {
+    // Mode 'framed-placeholder' (exact user requirement)
+    cellChildren.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 120, after: 40 },
+        children: [
+          new TextRun({
+            text: '🖼️ [ صورة / Image ]',
+            bold: true,
+            color: '334155',
+            size: 22,
+            font: 'Calibri',
+          }),
+        ],
+      }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 0, after: 120 },
+        children: [
+          new TextRun({
+            text: `[ الحجم الأصلي في الملف: ${Math.round(image.width)} × ${Math.round(image.height)} pt ]`,
+            color: '64748B',
+            size: 18,
+            font: 'Calibri',
+          }),
+        ],
+      })
+    );
+  }
+
+  return new Table({
+    width: { size: targetWidthDxa, type: WidthType.DXA },
+    alignment: AlignmentType.CENTER,
+    borders: {
+      top: { style: BorderStyle.DASHED, size: 8, color: '64748B' },
+      bottom: { style: BorderStyle.DASHED, size: 8, color: '64748B' },
+      left: { style: BorderStyle.DASHED, size: 8, color: '64748B' },
+      right: { style: BorderStyle.DASHED, size: 8, color: '64748B' },
+      insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+    },
+    rows: [
+      new TableRow({
+        height: { value: targetHeightDxa, rule: HeightRule.ATLEAST },
+        children: [
+          new TableCell({
+            width: { size: targetWidthDxa, type: WidthType.DXA },
+            verticalAlign: VerticalAlign.CENTER,
+            shading: {
+              fill: 'F8FAFC',
+              type: ShadingType.CLEAR,
+              color: 'auto',
+            },
+            margins: {
+              top: 140,
+              bottom: 140,
+              left: 180,
+              right: 180,
+            },
+            children: cellChildren,
+          }),
+        ],
+      }),
+    ],
+  });
+}
+
+function createImagePlaceholderHtml(
+  image: ExtractedPdfImage,
+  maxAvailableWidthPx: number,
+  imageMode: 'framed-placeholder' | 'framed-with-image' | 'no-frames' = 'framed-placeholder'
+): string {
+  const w = Math.round(Math.max(120, Math.min(image.width, maxAvailableWidthPx)));
+  const h = Math.round(Math.max(65, Math.min(260, image.height)));
+
+  if (imageMode === 'framed-with-image' && image.dataUrl) {
+    return `
+      <div style="width:${w}px; max-width:100%; border:2px dashed #94a3b8; border-radius:8px; background:#f8fafc; padding:10px; margin:16px auto; box-sizing:border-box; text-align:center;">
+        <img src="${image.dataUrl}" style="max-width:100%; max-height:${h}px; border-radius:4px; display:inline-block; margin-bottom:6px;" alt="Extracted Image" />
+        <div style="font-size:11px; font-weight:700; color:#475569;">[ صورة / Image: ${Math.round(image.width)} × ${Math.round(image.height)} pt ]</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div style="width:${w}px; max-width:100%; min-height:${h}px; border:2px dashed #64748b; border-radius:8px; background:#f8fafc; display:flex; flex-direction:column; align-items:center; justify-content:center; margin:16px auto; padding:12px; box-sizing:border-box; text-align:center; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+      <div style="font-weight:700; color:#334155; font-size:13.5px; display:flex; align-items:center; gap:6px;">
+        🖼️ [ صورة / Image ]
+      </div>
+      <div style="font-size:11px; color:#64748b; margin-top:4px; font-family:'JetBrains Mono',monospace;">
+        الحجم في الملف الأصلي: ${Math.round(image.width)} × ${Math.round(image.height)} pt
+      </div>
+    </div>
+  `;
+}
+
 /**
  * Generates BOTH a native OpenXML .docx binary file (via the `docx` package)
- * AND a rich HTML visual preview that faithfully preserves 2-column CV layouts,
- * dark navy sidebars, circular profile photos, orange section underlines, and right-aligned dates!
+ * AND a rich HTML visual preview that faithfully preserves:
+ * 1. Exact page order and page breaks (Page 1 = Page 1, Page 2 = Page 2)
+ * 2. Mise-en-page (2-column sidebars or clean single-column hierarchy)
+ * 3. Exact position and size-framed placeholder boxes for images ("الصورة / Image داخل إطار")
  */
 export async function generateEditableDocxFromPages(
   extractedPages: ExtractedPdfPage[],
-  options: { includeFullPageSnapshot?: boolean } = {}
-): Promise<{ docxBytes: Uint8Array; previewHtml: string }> {
+  options: DocxGenerationOptions = {}
+): Promise<{ docxBytes: Uint8Array; previewHtml: string; imageFramesCount: number }> {
   const docChildren: (Paragraph | Table)[] = [];
   const previewHtmlSections: string[] = [];
+  let totalImageFramesCount = 0;
 
-  for (const page of extractedPages) {
+  for (let pageIdx = 0; pageIdx < extractedPages.length; pageIdx++) {
+    const page = extractedPages[pageIdx];
+    const isFirstPage = pageIdx === 0;
+
+    // Insert clean page break between pages to guarantee 100% preservation of multi-page layout
+    if (!isFirstPage && options.preservePageBreaks !== false) {
+      docChildren.push(
+        new Paragraph({
+          pageBreakBefore: true,
+          children: [],
+        })
+      );
+      previewHtmlSections.push(`
+        <div style="display:flex; align-items:center; justify-content:center; gap:12px; margin:28px 0 20px 0; color:#64748b; font-size:11.5px; font-weight:700;">
+          <div style="flex:1; border-top:1px dashed #cbd5e1;"></div>
+          <span style="background:#f1f5f9; padding:4px 12px; border-radius:6px; border:1px solid #e2e8f0;">📄 فاصل صفحة Word (الصفحة ${page.pageNumber} من ${extractedPages.length})</span>
+          <div style="flex:1; border-top:1px dashed #cbd5e1;"></div>
+        </div>
+      `);
+    }
+
     if (page.isTwoColumn) {
       // ================== 2-COLUMN CV / SIDEBAR RECONSTRUCTION ==================
-      const leftParagraphs: Paragraph[] = [];
+      const leftParagraphs: (Paragraph | Table)[] = [];
       let leftHtml = '';
 
-      // 1. Profile Photo at top of Left Sidebar
+      // 1. Profile Photo / Avatar at top of Left Sidebar
       if (page.extractedPhotoPngBytes && page.extractedPhotoDataUrl) {
+        totalImageFramesCount++;
         const imgW = 150;
         const imgH = Math.round(imgW / (page.extractedPhotoAspect || 1));
-        leftParagraphs.push(
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 120, after: 280 },
-            children: [
-              new ImageRun({
-                data: page.extractedPhotoPngBytes,
-                transformation: { width: imgW, height: imgH },
-                type: 'png',
-              }),
-            ],
-          })
-        );
-        leftHtml += `<div style="text-align:center; margin: 8px 0 22px 0;">
-          <img src="${page.extractedPhotoDataUrl}" style="width:155px; height:auto; border-radius:8px; display:inline-block;" alt="Profile Photo" />
-        </div>`;
+
+        if (options.imageMode === 'framed-placeholder') {
+          // Framed placeholder box matching exact size
+          leftParagraphs.push(
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { before: 120, after: 60 },
+              border: {
+                top: { color: '94A3B8', space: 6, style: BorderStyle.DASHED, size: 6 },
+                bottom: { color: '94A3B8', space: 6, style: BorderStyle.DASHED, size: 6 },
+                left: { color: '94A3B8', space: 6, style: BorderStyle.DASHED, size: 6 },
+                right: { color: '94A3B8', space: 6, style: BorderStyle.DASHED, size: 6 },
+              },
+              children: [
+                new TextRun({
+                  text: '🖼️ [ صورة / Image ]',
+                  bold: true,
+                  color: page.hasDarkSidebar ? 'FFFFFF' : '1E293B',
+                  size: 20,
+                  font: 'Calibri',
+                }),
+                new TextRun({
+                  text: `\n[ ${imgW} × ${imgH} pt ]`,
+                  color: page.hasDarkSidebar ? 'CBD5E1' : '64748B',
+                  size: 16,
+                  font: 'Calibri',
+                }),
+              ],
+            })
+          );
+          leftHtml += `<div style="text-align:center; margin:8px 0 22px 0; border:2px dashed #94a3b8; border-radius:8px; padding:16px 8px; background:rgba(255,255,255,0.08);">
+            <div style="font-weight:700; color:${page.hasDarkSidebar ? '#ffffff' : '#1e293b'}; font-size:12px;">🖼️ [ صورة / Image ]</div>
+            <div style="font-size:10px; color:${page.hasDarkSidebar ? '#cbd5e1' : '#64748b'}; margin-top:3px;">${imgW} × ${imgH} pt</div>
+          </div>`;
+        } else {
+          leftParagraphs.push(
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { before: 120, after: 280 },
+              children: [
+                new ImageRun({
+                  data: page.extractedPhotoPngBytes,
+                  transformation: { width: imgW, height: imgH },
+                  type: 'png',
+                }),
+              ],
+            })
+          );
+          leftHtml += `<div style="text-align:center; margin: 8px 0 22px 0;">
+            <img src="${page.extractedPhotoDataUrl}" style="width:155px; height:auto; border-radius:8px; display:inline-block;" alt="Profile Photo" />
+          </div>`;
+        }
       }
 
       // 2. Left Sidebar Lines (CONTACT, COMPETENCES TECHNIQUES, etc.)
@@ -518,28 +876,54 @@ export async function generateEditableDocxFromPages(
         }
       }
 
-      // 3. Right Main Column Lines (Header, PROFIL, EXPERIENCES PROFESSIONNELLES, etc.)
-      const rightParagraphs: Paragraph[] = [];
+      // 3. Right Main Column Lines & In-Flow Images (Header, PROFIL, EXPERIENCES PROFESSIONNELLES, etc.)
+      const rightParagraphs: (Paragraph | Table)[] = [];
       let rightHtml = '';
+
+      // Merge right column lines and right column images by topY
+      const rightSplitX = page.width * page.splitRatio;
+      const rightImages = (page.images || []).filter((im) => im.x >= rightSplitX - 10);
+
+      type RightFlowItem =
+        | { type: 'line'; topY: number; line: ReconstructedLine }
+        | { type: 'image'; topY: number; image: ExtractedPdfImage };
+
+      const rightFlowItems: RightFlowItem[] = [
+        ...page.rightLines.map((l) => ({ type: 'line' as const, topY: l.topY, line: l })),
+        ...rightImages.map((im) => ({ type: 'image' as const, topY: im.topY, image: im })),
+      ].sort((a, b) => a.topY - b.topY);
 
       let prevWasJobHeader = false;
       const rightMinX =
         page.rightLines.length > 0
           ? Math.min(...page.rightLines.map((l) => l.minX))
-          : page.width * page.splitRatio + 20;
+          : rightSplitX + 20;
 
-      for (let i = 0; i < page.rightLines.length; i++) {
-        const line = page.rightLines[i];
+      for (let i = 0; i < rightFlowItems.length; i++) {
+        const item = rightFlowItems[i];
+
+        if (item.type === 'image') {
+          totalImageFramesCount++;
+          if (options.imageMode !== 'no-frames') {
+            const availableColDxa = Math.round((1 - page.splitRatio) * 9000);
+            rightParagraphs.push(createImagePlaceholderDocxBox(item.image, availableColDxa, options.imageMode));
+            rightHtml += createImagePlaceholderHtml(item.image, 380, options.imageMode);
+          }
+          prevWasJobHeader = false;
+          continue;
+        }
+
+        const line = item.line;
         const text = line.fullText;
 
-        // Detect Top Centered Name & Role Subtitle (first 1-2 lines of right column if centered or large font)
+        // Detect Top Centered Name & Role Subtitle
         const isTopHeroName =
           i === 0 && (line.fontSize >= 16 || text === text.toUpperCase());
         const isTopRoleSubtitle =
           i === 1 &&
-          page.rightLines[0] &&
+          rightFlowItems[0] &&
           text === text.toUpperCase() &&
-          line.topY - page.rightLines[0].topY < 35;
+          line.topY - rightFlowItems[0].topY < 35;
 
         if (isTopHeroName) {
           rightParagraphs.push(
@@ -772,29 +1156,139 @@ export async function generateEditableDocxFromPages(
       `);
     } else {
       // ================== 1-COLUMN DOCUMENT RECONSTRUCTION ==================
+      // Merge all text lines and all detected images strictly sorted by vertical topY position
+      type SingleFlowItem =
+        | { type: 'line'; topY: number; line: ReconstructedLine }
+        | { type: 'image'; topY: number; image: ExtractedPdfImage };
+
+      const singleFlowItems: SingleFlowItem[] = [
+        ...page.rightLines.map((l) => ({ type: 'line' as const, topY: l.topY, line: l })),
+        ...(page.images || []).map((im) => ({ type: 'image' as const, topY: im.topY, image: im })),
+      ].sort((a, b) => a.topY - b.topY);
+
       let singleColHtml = '';
-      for (const line of page.rightLines) {
-        const isHeading = line.fontSize >= 14;
+
+      for (let i = 0; i < singleFlowItems.length; i++) {
+        const item = singleFlowItems[i];
+
+        if (item.type === 'image') {
+          totalImageFramesCount++;
+          if (options.imageMode !== 'no-frames') {
+            // Insert framed box matching exact image size in the original PDF
+            const docxImgBox = createImagePlaceholderDocxBox(item.image, 9000, options.imageMode);
+            docChildren.push(docxImgBox);
+            singleColHtml += createImagePlaceholderHtml(item.image, 520, options.imageMode);
+          }
+          continue;
+        }
+
+        const line = item.line;
+        const text = line.fullText;
+        const isHeading1 = line.fontSize >= 16 || (i === 0 && line.fontSize >= 14);
+        const isHeading2 =
+          !isHeading1 &&
+          (line.fontSize >= 13 ||
+            (text.length >= 4 && text === text.toUpperCase() && !/^\d/.test(text)));
+        const isBullet =
+          text.startsWith('•') ||
+          text.startsWith('-') ||
+          text.startsWith('*') ||
+          /^\d+[\.\)]\s/.test(text);
+
+        if (isHeading1) {
+          docChildren.push(
+            new Paragraph({
+              spacing: { before: 260, after: 120 },
+              children: [
+                new TextRun({
+                  text,
+                  bold: true,
+                  size: 32, // 16pt
+                  color: '0F172A',
+                  font: 'Calibri',
+                }),
+              ],
+            })
+          );
+          singleColHtml += `<h1 style="color:#0f172a; font-size:19px; font-weight:800; margin:18px 0 8px 0; letter-spacing:0.01em;">${text}</h1>`;
+        } else if (isHeading2) {
+          docChildren.push(
+            new Paragraph({
+              spacing: { before: 220, after: 80 },
+              border: {
+                bottom: {
+                  color: 'E2E8F0',
+                  space: 4,
+                  style: BorderStyle.SINGLE,
+                  size: 6,
+                },
+              },
+              children: [
+                new TextRun({
+                  text,
+                  bold: true,
+                  size: 26, // 13pt
+                  color: '1E293B',
+                  font: 'Calibri',
+                }),
+              ],
+            })
+          );
+          singleColHtml += `<h2 style="color:#1e293b; font-size:15px; font-weight:700; border-bottom:1.5px solid #e2e8f0; padding-bottom:4px; margin:16px 0 8px 0;">${text}</h2>`;
+        } else if (isBullet) {
+          docChildren.push(
+            new Paragraph({
+              indent: { left: 360 }, // 0.25 inch
+              spacing: { before: 45, after: 45 },
+              children: [
+                new TextRun({
+                  text,
+                  color: '334155',
+                  size: 21, // 10.5pt
+                  font: 'Calibri',
+                }),
+              ],
+            })
+          );
+          singleColHtml += `<div style="padding-right:14px; color:#334155; font-size:12.5px; line-height:1.6; margin:3px 0;">• ${text.replace(/^[•\-\*]\s*/, '')}</div>`;
+        } else {
+          docChildren.push(
+            new Paragraph({
+              spacing: { before: 60, after: 60 },
+              children: [
+                new TextRun({
+                  text,
+                  color: '1E293B',
+                  size: 21, // 10.5pt
+                  font: 'Calibri',
+                }),
+              ],
+            })
+          );
+          singleColHtml += `<p style="color:#1e293b; font-size:12.5px; line-height:1.6; margin:5px 0;">${text}</p>`;
+        }
+      }
+
+      if (singleFlowItems.length === 0 && page.pageDataUrl) {
+        totalImageFramesCount++;
+        const snapBytes = dataUrlToUint8Array(page.pageDataUrl);
         docChildren.push(
           new Paragraph({
-            spacing: { before: isHeading ? 200 : 60, after: isHeading ? 100 : 60 },
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 180, after: 180 },
             children: [
-              new TextRun({
-                text: line.fullText,
-                bold: isHeading,
-                size: isHeading ? 28 : 21,
-                color: isHeading ? '0F172A' : '1E293B',
-                font: 'Calibri',
+              new ImageRun({
+                data: snapBytes,
+                transformation: { width: 480, height: 640 },
+                type: 'jpg',
               }),
             ],
           })
         );
-        singleColHtml += isHeading
-          ? `<h2 style="color:#0f172a; font-size:16px; font-weight:700; margin:14px 0 6px 0;">${line.fullText}</h2>`
-          : `<p style="color:#1e293b; font-size:12.5px; line-height:1.6; margin:5px 0;">${line.fullText}</p>`;
+        singleColHtml += `<div style="text-align:center; padding:12px;"><img src="${page.pageDataUrl}" style="max-width:100%; height:auto; border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,0.1);" alt="Page Snapshot" /></div>`;
       }
 
-      if (options.includeFullPageSnapshot && page.pageDataUrl) {
+      if (options.includeFullPageSnapshot && page.pageDataUrl && singleFlowItems.length > 0) {
         const snapBytes = dataUrlToUint8Array(page.pageDataUrl);
         docChildren.push(
           new Paragraph({
@@ -812,7 +1306,7 @@ export async function generateEditableDocxFromPages(
       }
 
       previewHtmlSections.push(`
-        <div style="padding:24px; border:1px solid #cbd5e1; border-radius:8px; background:#ffffff; margin-bottom:20px; font-family:'Calibri',sans-serif;">
+        <div style="padding:26px 30px; border:1px solid #cbd5e1; border-radius:8px; background:#ffffff; box-shadow:0 3px 10px rgba(0,0,0,0.05); margin-bottom:20px; font-family:'Calibri',sans-serif; min-height:480px;">
           ${singleColHtml}
         </div>
       `);
@@ -825,10 +1319,10 @@ export async function generateEditableDocxFromPages(
         properties: {
           page: {
             margin: {
-              top: 360, // 0.25 inch margins so CV fills the Word page cleanly
-              bottom: 360,
-              left: 360,
-              right: 360,
+              top: 720, // 0.5 inch margins for standard official document look
+              bottom: 720,
+              left: 720,
+              right: 720,
             },
           },
         },
@@ -842,6 +1336,7 @@ export async function generateEditableDocxFromPages(
   return {
     docxBytes: new Uint8Array(arrayBuf),
     previewHtml: previewHtmlSections.join('\n'),
+    imageFramesCount: totalImageFramesCount,
   };
 }
 

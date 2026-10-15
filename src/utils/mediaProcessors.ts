@@ -499,6 +499,8 @@ export interface PdfProcessOptions {
   compressDpi?: number;
   compressStripMetadata?: boolean;
   includePageSnapshotsInWord?: boolean;
+  wordImageMode?: 'framed-placeholder' | 'framed-with-image' | 'no-frames';
+  wordPreservePageBreaks?: boolean;
   mergeAddPageNumbers?: boolean;
   pptxMode?: 'editable-smart' | 'hybrid-with-snapshot' | 'visual-exact';
   pptxTheme?: 'original-brand' | 'executive-dark' | 'clean-light';
@@ -1144,15 +1146,21 @@ export async function processPdfAction(
     }
 
     // D) PDF TO WORD (.DOCX)
-    const { docxBytes, previewHtml } = await generateEditableDocxFromPages(
+    const { docxBytes, previewHtml, imageFramesCount } = await generateEditableDocxFromPages(
       extractedPages,
       {
         includeFullPageSnapshot: Boolean(options.includePageSnapshotsInWord),
+        imageMode: options.wordImageMode || 'framed-placeholder',
+        preservePageBreaks: options.wordPreservePageBreaks !== false,
       }
     );
 
-    const hasPhotoCount = extractedPages.filter((p) => Boolean(p.extractedPhotoPngBytes)).length;
-    const isTwoCol = extractedPages.some((p) => p.isTwoColumn);
+    let summaryText = '';
+    if (imageFramesCount > 0) {
+      summaryText = `✅ تم تحويل PDF إلى Word بنجاح مع الحفاظ التام على ترتيب الصفحات (${pageCount} صفحة) وتنسيق الميزون باج، واستبدال الصور بـ ${imageFramesCount} إطار مخصص يحمل اسم [صورة / Image] وأبعادها الأصلية.`;
+    } else {
+      summaryText = `✅ تم تحويل PDF إلى Word بنجاح مع الحفاظ التام على ترتيب الصفحات (${pageCount} صفحة) والميزون باج الأصلي (${totalLinesExtracted} سطر منسق).`;
+    }
 
     return {
       outputBytes: docxBytes,
@@ -1160,11 +1168,7 @@ export async function processPdfAction(
       mimeType:
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       pageCount,
-      summary: `Reconstructed ${
-        isTwoCol ? '2-Column CV Layout' : 'Document Layout'
-      }${
-        hasPhotoCount > 0 ? ` + ${hasPhotoCount} Embedded Photo(s)` : ''
-      } (${totalLinesExtracted} editable lines) into native .DOCX.`,
+      summary: summaryText,
       previewHtml,
     };
   }

@@ -142,9 +142,12 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   const [pageNumberStartAt, setPageNumberStartAt] = useState(1);
   const [pageNumberFontSize, setPageNumberFontSize] = useState(10.5);
   const [pdfPassword, setPdfPassword] = useState('');
-  const [protectMode, setProtectMode] = useState<'vault-anti-crack' | 'standard-pdf'>('vault-anti-crack');
   const [organizePagesOrder, setOrganizePagesOrder] = useState<number[]>([]);
-  const [includePageSnapshotsInWord, setIncludePageSnapshotsInWord] = useState(true);
+  const [includePageSnapshotsInWord, setIncludePageSnapshotsInWord] = useState(false);
+  const [wordImageMode, setWordImageMode] = useState<
+    'framed-placeholder' | 'framed-with-image' | 'no-frames'
+  >('framed-placeholder');
+  const [wordPreservePageBreaks, setWordPreservePageBreaks] = useState(true);
   const [compressionLevel, setCompressionLevel] = useState<
     'low' | 'medium' | 'extreme' | 'custom'
   >('medium');
@@ -428,7 +431,6 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
           pageNumberStartAt,
           pageNumberFontSize,
           password: pdfPassword,
-          protectMode,
           compressionLevel,
           compressCustomQuality,
           compressGrayscale,
@@ -480,7 +482,6 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     pageNumberStartAt,
     pageNumberFontSize,
     pdfPassword,
-    protectMode,
     compressionLevel,
     compressCustomQuality,
     compressGrayscale,
