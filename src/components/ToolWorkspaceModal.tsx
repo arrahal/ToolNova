@@ -106,6 +106,14 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   const [isUsingSamplePdf, setIsUsingSamplePdf] = useState(false);
   const [pdfResult, setPdfResult] = useState<PdfProcessResult | null>(null);
   const [pdfProcessing, setPdfProcessing] = useState(false);
+  const [isReadingFile, setIsReadingFile] = useState(false);
+  const [fileLoadingProgress, setFileLoadingProgress] = useState('');
+  const [pdfProcessingProgress, setPdfProcessingProgress] = useState<{
+    percent: number;
+    current: number;
+    total: number;
+    message: string;
+  } | null>(null);
 
   // Canvas-based Live PDF Output Page Viewer (replaces fragile iframe!)
   const pdfOutputCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -389,16 +397,22 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     };
   }, [tool, uploadedPdfForImage, pdfImagePageNum]);
 
-  // Trigger PDF processing whenever files or options change
+  // Trigger PDF processing whenever files or options change with adaptive debounce
   useEffect(() => {
     if (!tool || tool.hub !== 'pdf' || pdfFiles.length === 0) {
       setPdfResult(null);
+      setPdfProcessing(false);
+      setPdfProcessingProgress(null);
       return;
     }
     let cancelled = false;
-    setPdfProcessing(true);
 
-    (async () => {
+    // For large files (> 3MB) or multi-page documents, debounce by 300ms so controls remain silky smooth
+    const isLargeFile = (pdfFiles[0]?.bytes?.byteLength || 0) > 3 * 1024 * 1024;
+    const debounceMs = isLargeFile ? 300 : 100;
+
+    const timer = setTimeout(async () => {
+      setPdfProcessing(true);
       try {
         const res = await processPdfAction(pdfFiles, {
           toolId: tool.id,
@@ -427,6 +441,11 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
           excelMode,
           excelDrawBorders,
           excelEmbedPhotos,
+          onProgress: (p) => {
+            if (!cancelled) {
+              setPdfProcessingProgress(p);
+            }
+          },
         });
         if (cancelled) return;
         setPdfResult(res);
@@ -435,12 +454,16 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
       } catch {
         // Recover gracefully without throwing unhandled console errors
       } finally {
-        if (!cancelled) setPdfProcessing(false);
+        if (!cancelled) {
+          setPdfProcessing(false);
+          setPdfProcessingProgress(null);
+        }
       }
-    })();
+    }, debounceMs);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [
     tool,
@@ -860,44 +883,44 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   const isMultiFilePdfTool = tool.id === 'merge-pdf' || tool.id === 'jpg-to-pdf';
 
   // ---------------- HANDLERS ----------------
-  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  const processUploadedPdfFiles = async (filesList: FileList | File[]) => {
+    if (!filesList || filesList.length === 0) return;
+    const filesArray = Array.from(filesList);
+    setIsReadingFile(true);
+    setFileLoadingProgress('جاري فحص وقراءة بيانات الملف بأمان محلي...');
+    // Yield to let React render the loading overlay immediately
+    await new Promise((r) => setTimeout(r, 20));
 
-    const loaded: QueuedPdfFile[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const buf = await files[i].arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      const count = files[i].name.toLowerCase().endsWith('.pdf')
-        ? await getPdfPageCount(bytes)
-        : 1;
-      loaded.push({
-        id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
-        name: files[i].name,
-        bytes,
-        pageCount: count,
-      });
-    }
+    try {
+      const loaded: QueuedPdfFile[] = [];
+      for (let i = 0; i < filesArray.length; i++) {
+        const file = filesArray[i];
+        const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+        setFileLoadingProgress(
+          filesArray.length > 1
+            ? `جاري قراءة الملف ${i + 1} من ${filesArray.length} (${sizeMb} MB)...`
+            : `جاري قراءة الملف (${sizeMb} MB) في الذاكرة الخفيفة...`
+        );
+        await new Promise((r) => setTimeout(r, 0));
 
-    if (isUsingSamplePdf) {
-      // Automatically replace the demo sample files with the user's real uploaded file(s)
-      setIsUsingSamplePdf(false);
-      setPdfFiles(loaded);
-      setPreviewPageNum(1);
-      if (loaded[0]) {
-        const order = Array.from({ length: loaded[0].pageCount }, (_, idx) => idx + 1);
-        setOrganizePagesOrder(order);
-        if (tool.id === 'organize-pdf') {
-          setSplitPageRange(order.join(','));
-        } else if (tool.id === 'split-pdf') {
-          setSplitPageRange(loaded[0].pageCount > 1 ? `1-${Math.min(2, loaded[0].pageCount)}` : '1');
-        }
+        const buf = await file.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        const count = file.name.toLowerCase().endsWith('.pdf')
+          ? await getPdfPageCount(bytes)
+          : 1;
+
+        loaded.push({
+          id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+          name: file.name,
+          bytes,
+          pageCount: count,
+        });
       }
-    } else {
-      setPdfFiles((prev) =>
-        isMultiFilePdfTool ? [...prev, ...loaded] : loaded
-      );
-      if (!isMultiFilePdfTool) {
+
+      if (isUsingSamplePdf) {
+        // Automatically replace the demo sample files with the user's real uploaded file(s)
+        setIsUsingSamplePdf(false);
+        setPdfFiles(loaded);
         setPreviewPageNum(1);
         if (loaded[0]) {
           const order = Array.from({ length: loaded[0].pageCount }, (_, idx) => idx + 1);
@@ -908,8 +931,33 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
             setSplitPageRange(loaded[0].pageCount > 1 ? `1-${Math.min(2, loaded[0].pageCount)}` : '1');
           }
         }
+      } else {
+        setPdfFiles((prev) =>
+          isMultiFilePdfTool ? [...prev, ...loaded] : loaded
+        );
+        if (!isMultiFilePdfTool) {
+          setPreviewPageNum(1);
+          if (loaded[0]) {
+            const order = Array.from({ length: loaded[0].pageCount }, (_, idx) => idx + 1);
+            setOrganizePagesOrder(order);
+            if (tool.id === 'organize-pdf') {
+              setSplitPageRange(order.join(','));
+            } else if (tool.id === 'split-pdf') {
+              setSplitPageRange(loaded[0].pageCount > 1 ? `1-${Math.min(2, loaded[0].pageCount)}` : '1');
+            }
+          }
+        }
       }
+    } finally {
+      setIsReadingFile(false);
+      setFileLoadingProgress('');
     }
+  };
+
+  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    await processUploadedPdfFiles(files);
     e.target.value = '';
   };
 
@@ -1790,11 +1838,58 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                 )}
 
                 {/* Live PDF Page Canvas Viewer OR Extracted Text Preview */}
-                <div className="flex-1 min-h-[340px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden flex flex-col">
-                  {pdfProcessing ? (
-                    <div className="flex-1 flex items-center justify-center text-xs text-slate-500 gap-2">
-                      <RefreshCw className="w-4 h-4 animate-spin text-rose-600" />
-                      Processing PDF pages locally via PDF.js + pdf-lib...
+                <div
+                  className="flex-1 min-h-[340px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden flex flex-col"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                      processUploadedPdfFiles(e.dataTransfer.files);
+                    }
+                  }}
+                >
+                  {isReadingFile ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center gap-3">
+                      <div className="relative">
+                        <div className="w-12 h-12 rounded-full border-4 border-rose-200 dark:border-rose-900 border-t-rose-600 animate-spin" />
+                        <Zap className="w-5 h-5 text-rose-600 absolute inset-0 m-auto" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                          معالجة الملف الكبير في الذاكرة المحلية الخفيفة...
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                          {fileLoadingProgress || 'جاري قراءة البيانات بدون تهنيج للمتصفح...'}
+                        </p>
+                      </div>
+                    </div>
+                  ) : pdfProcessing ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center gap-3">
+                      <div className="relative">
+                        <div className="w-12 h-12 rounded-full border-4 border-rose-200 dark:border-rose-900 border-t-rose-600 animate-spin" />
+                        <Sparkles className="w-5 h-5 text-rose-600 absolute inset-0 m-auto" />
+                      </div>
+                      <div className="space-y-1.5 max-w-sm">
+                        <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                          {pdfProcessingProgress?.message || 'جاري معالجة صفحات المستند بسلاسة وخفة...'}
+                        </p>
+                        {pdfProcessingProgress && pdfProcessingProgress.total > 0 && (
+                          <div className="w-52 mx-auto space-y-1">
+                            <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                              <div
+                                className="h-full bg-rose-600 transition-all duration-200"
+                                style={{ width: `${pdfProcessingProgress.percent}%` }}
+                              />
+                            </div>
+                            <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                              {pdfProcessingProgress.percent}% (صفحة {pdfProcessingProgress.current} من {pdfProcessingProgress.total})
+                            </span>
+                          </div>
+                        )}
+                        <p className="text-[10.5px] text-slate-400">
+                          يتم ضغط ومعالجة كل صفحة على حدة لضمان بقاء المتصفح خفيفاً وسريعاً
+                        </p>
+                      </div>
                     </div>
                   ) : pdfFiles.length === 0 ? (
                     <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50/50 dark:bg-slate-900/40">
@@ -3208,6 +3303,31 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                               </span>
                             </div>
                           </div>
+
+                          {origBytes > 2 * 1024 * 1024 && (
+                            <div className="mt-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-[10.5px] text-emerald-800 dark:text-emerald-300 font-bold">
+                              <Zap className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>نظام المعالجة الخفيف مفعل: تدفق صفحات ذكي بدون استهلاك للرام</span>
+                            </div>
+                          )}
+
+                          {pdfProcessing && (
+                            <div className="mt-2 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/60 space-y-1.5">
+                              <div className="flex items-center justify-between text-[11px] font-bold text-rose-800 dark:text-rose-200">
+                                <span className="flex items-center gap-1.5">
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-600" />
+                                  <span>{pdfProcessingProgress?.message || 'جاري ضغط الملف بسلاسة...'}</span>
+                                </span>
+                                <span className="font-mono">{pdfProcessingProgress?.percent || 0}%</span>
+                              </div>
+                              <div className="w-full h-1.5 rounded-full bg-rose-200 dark:bg-rose-900 overflow-hidden">
+                                <div
+                                  className="h-full bg-rose-600 transition-all duration-200"
+                                  style={{ width: `${pdfProcessingProgress?.percent || 0}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* 2. Live Compression Result & Comparison Card (عند توفر النتيجة) */}

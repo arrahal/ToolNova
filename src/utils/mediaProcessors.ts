@@ -10,6 +10,7 @@ import {
   generateEditableDocxFromPages,
   generateProfessionalPptxFromPages,
   generateProfessionalExcelFromPages,
+  getFastPdfPageCount,
 } from './pdfAndGifEngine';
 
 /**
@@ -504,6 +505,7 @@ export interface PdfProcessOptions {
   excelMode?: 'auto-smart' | 'structured-tables' | 'visual-layout';
   excelDrawBorders?: boolean;
   excelEmbedPhotos?: boolean;
+  onProgress?: (progress: { percent: number; current: number; total: number; message: string }) => void;
 }
 
 export interface PdfProcessResult {
@@ -824,6 +826,13 @@ export async function loadPdfDocumentResilient(bytes: Uint8Array): Promise<PDFDo
 }
 
 export async function getPdfPageCount(pdfBytes: Uint8Array): Promise<number> {
+  try {
+    const fastCount = await getFastPdfPageCount(pdfBytes);
+    if (fastCount > 0) return fastCount;
+  } catch {
+    // continue to fallback
+  }
+
   try {
     if (isPdfBinaryBuffer(pdfBytes)) {
       const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
@@ -1288,21 +1297,24 @@ export async function processPdfAction(
     copiedPages.forEach((p) => splitDoc.addPage(p));
     const out = await splitDoc.save();
 
-    // Also populate extraFiles with single-page extracts for user convenience
+    // Also populate extraFiles with single-page extracts for user convenience (limited to <= 8 for high performance)
     const extraFiles: { name: string; bytes: Uint8Array; pageCount: number }[] = [];
-    for (const idx of indices) {
-      try {
-        const singleDoc = await PDFDocument.create();
-        const [singleCopied] = await singleDoc.copyPages(srcDoc, [idx]);
-        singleDoc.addPage(singleCopied);
-        const singleBytes = await singleDoc.save();
-        extraFiles.push({
-          name: `${baseName}_Page_${idx + 1}.pdf`,
-          bytes: singleBytes,
-          pageCount: 1,
-        });
-      } catch {
-        // continue
+    if (indices.length <= 8) {
+      for (const idx of indices) {
+        try {
+          await new Promise((r) => setTimeout(r, 0));
+          const singleDoc = await PDFDocument.create();
+          const [singleCopied] = await singleDoc.copyPages(srcDoc, [idx]);
+          singleDoc.addPage(singleCopied);
+          const singleBytes = await singleDoc.save();
+          extraFiles.push({
+            name: `${baseName}_Page_${idx + 1}.pdf`,
+            bytes: singleBytes,
+            pageCount: 1,
+          });
+        } catch {
+          // continue
+        }
       }
     }
 
@@ -1353,6 +1365,15 @@ export async function processPdfAction(
     const compressedPdf = await PDFDocument.create();
 
     for (let p = 1; p <= totalPages; p++) {
+      options.onProgress?.({
+        percent: Math.round(((p - 1) / totalPages) * 100),
+        current: p,
+        total: totalPages,
+        message: `جاري ضغط وتحسين الصفحة ${p} من ${totalPages}...`,
+      });
+      // Yield to the browser event loop so UI stays completely responsive with large files
+      await new Promise((r) => setTimeout(r, 0));
+
       const { canvas } =
         p === 1 ? firstRender : await renderPdfPageToCanvas(origBytes, p, scale);
 
@@ -1372,9 +1393,20 @@ export async function processPdfAction(
         }
       }
 
-      const jpgDataUrl = canvas.toDataURL('image/jpeg', quality);
-      const jpgBase64 = jpgDataUrl.split(',')[1];
-      const jpgBytes = Uint8Array.from(atob(jpgBase64), (c) => c.charCodeAt(0));
+      // High-performance direct Blob conversion (avoids massive base64 string allocations in RAM!)
+      let jpgBytes: Uint8Array;
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((b) => resolve(b), 'image/jpeg', quality);
+      });
+      if (blob) {
+        const buf = await blob.arrayBuffer();
+        jpgBytes = new Uint8Array(buf);
+      } else {
+        const jpgDataUrl = canvas.toDataURL('image/jpeg', quality);
+        const jpgBase64 = jpgDataUrl.split(',')[1];
+        jpgBytes = Uint8Array.from(atob(jpgBase64), (c) => c.charCodeAt(0));
+      }
+
       const embeddedJpg = await compressedPdf.embedJpg(jpgBytes);
       const page = compressedPdf.addPage([canvas.width / scale, canvas.height / scale]);
       page.drawImage(embeddedJpg, {
@@ -1383,7 +1415,18 @@ export async function processPdfAction(
         width: canvas.width / scale,
         height: canvas.height / scale,
       });
+
+      // Free canvas internal buffer memory
+      canvas.width = 0;
+      canvas.height = 0;
     }
+
+    options.onProgress?.({
+      percent: 100,
+      current: totalPages,
+      total: totalPages,
+      message: 'اكتمل ضغط المستند بنجاح!',
+    });
 
     if (stripMetadata) {
       compressedPdf.setTitle('');
