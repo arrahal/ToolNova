@@ -253,60 +253,76 @@ export async function extractRealPdfContent(
       }
     }
 
-    // Always render a high-res canvas (scale 2.0) to inspect sidebar background color & extract profile photos
-    const renderScale = options.imageScale || 2.0;
-    const renderViewport = page.getViewport({ scale: renderScale });
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.floor(renderViewport.width);
-    canvas.height = Math.floor(renderViewport.height);
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    await page.render({
-      canvasContext: ctx,
-      viewport: renderViewport,
-      canvas,
-    }).promise;
-
-    // 1. Detect if there is a colored left sidebar by sampling pixels near the left edge vs right side
-    const sampleY = Math.floor(canvas.height * 0.45);
-    const rowPixels = ctx.getImageData(0, sampleY, canvas.width, 1).data;
-    const leftR = rowPixels[12 * 4];
-    const leftG = rowPixels[12 * 4 + 1];
-    const leftB = rowPixels[12 * 4 + 2];
-
-    const rightSampleX = Math.floor(canvas.width * 0.85);
-    const rightR = rowPixels[rightSampleX * 4];
-    const rightG = rowPixels[rightSampleX * 4 + 1];
-    const rightB = rowPixels[rightSampleX * 4 + 2];
-
-    const colorDelta =
-      Math.abs(leftR - rightR) + Math.abs(leftG - rightG) + Math.abs(leftB - rightB);
-
-    let hasColoredSidebar = colorDelta > 45;
+    let hasColoredSidebar = false;
     let splitRatio = 0.34;
     let sidebarBgHex = '142642';
+    let hasDarkSidebar = false;
+    let renderedPageDataUrl: string | undefined = undefined;
 
-    if (hasColoredSidebar) {
-      sidebarBgHex = rgbToHex(leftR, leftG, leftB);
-      // Find the exact X pixel where the sidebar color transitions to the main background
-      for (let px = Math.floor(canvas.width * 0.18); px < Math.floor(canvas.width * 0.55); px++) {
-        const r = rowPixels[px * 4];
-        const g = rowPixels[px * 4 + 1];
-        const b = rowPixels[px * 4 + 2];
-        const distFromLeft = Math.abs(r - leftR) + Math.abs(g - leftG) + Math.abs(b - leftB);
-        if (distFromLeft > 40) {
-          splitRatio = px / canvas.width;
-          break;
+    let renderScale = 1.5;
+    let canvasInstance: HTMLCanvasElement | null = null;
+    let ctxInstance: CanvasRenderingContext2D | null = null;
+    let leftR = 255, leftG = 255, leftB = 255;
+
+    // For large documents (> 25 pages), render canvas lazily for page 1 or text-first to ensure 100% memory safety
+    const shouldRenderCanvas = numPages <= 25 || pageNum === 1 || Boolean(options.renderPageImages);
+    if (shouldRenderCanvas) {
+      try {
+        renderScale = options.imageScale || 1.5;
+        const renderViewport = page.getViewport({ scale: renderScale });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.floor(renderViewport.width);
+        canvas.height = Math.floor(renderViewport.height);
+        const ctx = canvas.getContext('2d')!;
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        await page.render({
+          canvasContext: ctx,
+          viewport: renderViewport,
+          canvas,
+        }).promise;
+
+        canvasInstance = canvas;
+        ctxInstance = ctx;
+        renderedPageDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+        const sampleY = Math.floor(canvas.height * 0.45);
+        const rowPixels = ctx.getImageData(0, sampleY, canvas.width, 1).data;
+        leftR = rowPixels[12 * 4];
+        leftG = rowPixels[12 * 4 + 1];
+        leftB = rowPixels[12 * 4 + 2];
+
+        const rightSampleX = Math.floor(canvas.width * 0.85);
+        const rightR = rowPixels[rightSampleX * 4];
+        const rightG = rowPixels[rightSampleX * 4 + 1];
+        const rightB = rowPixels[rightSampleX * 4 + 2];
+
+        const colorDelta =
+          Math.abs(leftR - rightR) + Math.abs(leftG - rightG) + Math.abs(leftB - rightB);
+
+        hasColoredSidebar = colorDelta > 45;
+        if (hasColoredSidebar) {
+          sidebarBgHex = rgbToHex(leftR, leftG, leftB);
+          for (let px = Math.floor(canvas.width * 0.18); px < Math.floor(canvas.width * 0.55); px++) {
+            const r = rowPixels[px * 4];
+            const g = rowPixels[px * 4 + 1];
+            const b = rowPixels[px * 4 + 2];
+            const distFromLeft = Math.abs(r - leftR) + Math.abs(g - leftG) + Math.abs(b - leftB);
+            if (distFromLeft > 40) {
+              splitRatio = px / canvas.width;
+              break;
+            }
+          }
         }
+
+        const leftLuminance = 0.299 * leftR + 0.587 * leftG + 0.114 * leftB;
+        hasDarkSidebar = hasColoredSidebar && leftLuminance < 140;
+      } catch {
+        // continue safely
       }
     }
 
-    const leftLuminance = 0.299 * leftR + 0.587 * leftG + 0.114 * leftB;
-    const hasDarkSidebar = hasColoredSidebar && leftLuminance < 140;
-
-    // Also check if text items naturally form a 2-column layout even if sidebar is light
     const splitXPt = pageW * splitRatio;
     const leftItems = rawItems.filter((it) => it.x < splitXPt - 4);
     const rightItems = rawItems.filter((it) => it.x >= splitXPt - 4);
@@ -323,14 +339,14 @@ export async function extractRealPdfContent(
     let extractedPhotoDataUrl: string | undefined;
     let extractedPhotoAspect = 1;
 
-    if (isTwoColumn) {
+    if (isTwoColumn && canvasInstance && ctxInstance) {
       const firstLeftTextTopY = leftLines[0]?.topY ?? pageH * 0.45;
       // If there is vertical space above the first left sidebar text item (at least 75pt),
       // inspect that box for a photo / avatar!
       if (firstLeftTextTopY > 85) {
-        const cropLeftPx = Math.floor(canvas.width * 0.03);
-        const cropWidthPx = Math.floor(canvas.width * (splitRatio - 0.06));
-        const cropTopPx = Math.floor(canvas.height * 0.025);
+        const cropLeftPx = Math.floor(canvasInstance.width * 0.03);
+        const cropWidthPx = Math.floor(canvasInstance.width * (splitRatio - 0.06));
+        const cropTopPx = Math.floor(canvasInstance.height * 0.025);
         const cropHeightPx = Math.floor(
           Math.min(
             cropWidthPx * 1.12,
@@ -339,7 +355,7 @@ export async function extractRealPdfContent(
         );
 
         if (cropWidthPx > 40 && cropHeightPx > 40) {
-          const imgRegion = ctx.getImageData(
+          const imgRegion = ctxInstance.getImageData(
             cropLeftPx,
             cropTopPx,
             cropWidthPx,
@@ -446,58 +462,60 @@ export async function extractRealPdfContent(
     }
 
     // Crop thumbnails and bytes for each detected image
-    for (const img of pageImages) {
-      try {
-        const cropX = Math.max(0, Math.min(canvas.width - 2, Math.floor(img.x * renderScale)));
-        const cropY = Math.max(0, Math.min(canvas.height - 2, Math.floor(img.topY * renderScale)));
-        const cropW = Math.max(2, Math.min(canvas.width - cropX, Math.floor(img.width * renderScale)));
-        const cropH = Math.max(2, Math.min(canvas.height - cropY, Math.floor(img.height * renderScale)));
+    if (canvasInstance && ctxInstance) {
+      for (const img of pageImages) {
+        try {
+          const cropX = Math.max(0, Math.min(canvasInstance.width - 2, Math.floor(img.x * renderScale)));
+          const cropY = Math.max(0, Math.min(canvasInstance.height - 2, Math.floor(img.topY * renderScale)));
+          const cropW = Math.max(2, Math.min(canvasInstance.width - cropX, Math.floor(img.width * renderScale)));
+          const cropH = Math.max(2, Math.min(canvasInstance.height - cropY, Math.floor(img.height * renderScale)));
 
-        if (cropW > 10 && cropH > 10) {
-          const imgData = ctx.getImageData(cropX, cropY, cropW, cropH);
-          const offscreen = document.createElement('canvas');
-          offscreen.width = cropW;
-          offscreen.height = cropH;
-          const offCtx = offscreen.getContext('2d')!;
-          offCtx.putImageData(imgData, 0, 0);
-          img.dataUrl = offscreen.toDataURL('image/jpeg', 0.85);
-          img.bytes = dataUrlToUint8Array(img.dataUrl);
+          if (cropW > 10 && cropH > 10) {
+            const imgData = ctxInstance.getImageData(cropX, cropY, cropW, cropH);
+            const offscreen = document.createElement('canvas');
+            offscreen.width = cropW;
+            offscreen.height = cropH;
+            const offCtx = offscreen.getContext('2d')!;
+            offCtx.putImageData(imgData, 0, 0);
+            img.dataUrl = offscreen.toDataURL('image/jpeg', 0.85);
+            img.bytes = dataUrlToUint8Array(img.dataUrl);
+          }
+        } catch {
+          // Safe skip
         }
-      } catch {
-        // Safe skip
       }
-    }
 
-    // If profile photo was detected and not yet in pageImages, insert it
-    if (extractedPhotoPngBytes && extractedPhotoDataUrl) {
-      const photoW = Math.round((canvas.width * (splitRatio - 0.06)) / renderScale);
-      const photoH = Math.round(photoW / extractedPhotoAspect);
-      const hasOverlap = pageImages.some((im) => im.x < pageW * splitRatio && im.topY < 160);
-      if (!hasOverlap) {
-        pageImages.unshift({
-          x: Math.round(pageW * 0.03),
-          topY: Math.round(pageH * 0.025),
-          width: photoW,
-          height: photoH,
-          aspectRatio: extractedPhotoAspect,
-          dataUrl: extractedPhotoDataUrl,
-          bytes: extractedPhotoPngBytes,
+      // If profile photo was detected and not yet in pageImages, insert it
+      if (extractedPhotoPngBytes && extractedPhotoDataUrl) {
+        const photoW = Math.round((canvasInstance.width * (splitRatio - 0.06)) / renderScale);
+        const photoH = Math.round(photoW / extractedPhotoAspect);
+        const hasOverlap = pageImages.some((im) => im.x < pageW * splitRatio && im.topY < 160);
+        if (!hasOverlap) {
+          pageImages.unshift({
+            x: Math.round(pageW * 0.03),
+            topY: Math.round(pageH * 0.025),
+            width: photoW,
+            height: photoH,
+            aspectRatio: extractedPhotoAspect,
+            dataUrl: extractedPhotoDataUrl,
+            bytes: extractedPhotoPngBytes,
+          });
+        }
+      }
+
+      // If document is purely an image/scanned page without text
+      if (rawItems.length === 0 && pageImages.length === 0) {
+        const fullUrl = canvasInstance.toDataURL('image/jpeg', 0.88);
+        pageImages.push({
+          x: 0,
+          topY: 0,
+          width: Math.round(pageW),
+          height: Math.round(pageH),
+          aspectRatio: pageW / (pageH || 1),
+          dataUrl: fullUrl,
+          bytes: dataUrlToUint8Array(fullUrl),
         });
       }
-    }
-
-    // If document is purely an image/scanned page without text
-    if (rawItems.length === 0 && pageImages.length === 0) {
-      const fullUrl = canvas.toDataURL('image/jpeg', 0.88);
-      pageImages.push({
-        x: 0,
-        topY: 0,
-        width: Math.round(pageW),
-        height: Math.round(pageH),
-        aspectRatio: pageW / (pageH || 1),
-        dataUrl: fullUrl,
-        bytes: dataUrlToUint8Array(fullUrl),
-      });
     }
 
     // Legacy single-list lines for Markdown/Excel compatibility
@@ -505,9 +523,9 @@ export async function extractRealPdfContent(
       ? [...leftLines, ...rightLines]
       : rightLines;
 
-    let pageDataUrl: string | undefined;
-    if (options.renderPageImages || allLines.length === 0) {
-      pageDataUrl = canvas.toDataURL('image/jpeg', options.imageQuality ?? 0.88);
+    let pageDataUrl: string | undefined = renderedPageDataUrl;
+    if ((options.renderPageImages || allLines.length === 0) && canvasInstance && !pageDataUrl) {
+      pageDataUrl = canvasInstance.toDataURL('image/jpeg', options.imageQuality ?? 0.88);
     }
 
     extractedPages.push({
