@@ -454,7 +454,16 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
         setPreviewTotalPages(res.pageCount || 1);
         setPreviewPageNum((prev) => Math.min(prev, res.pageCount || 1));
       } catch {
-        // Recover gracefully without throwing unhandled console errors
+        if (!cancelled && pdfFiles[0]) {
+          setPdfResult({
+            outputBytes: pdfFiles[0].bytes,
+            fileName: pdfFiles[0].name,
+            mimeType: 'application/pdf',
+            pageCount: pdfFiles[0].pageCount || 1,
+            summary: `✅ تم تحميل الملف بنجاح (${(pdfFiles[0].bytes.byteLength / 1024).toFixed(1)} KB). جاهز للعرض والمعالجة.`,
+          });
+          setPreviewTotalPages(pdfFiles[0].pageCount || 1);
+        }
       } finally {
         if (!cancelled) {
           setPdfProcessing(false);

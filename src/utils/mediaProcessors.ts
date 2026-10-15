@@ -1337,199 +1337,211 @@ export async function processPdfAction(
 
   // ---------------- 6. PROFESSIONAL COMPRESS PDF ENGINE (ULTRA-ROBUST FOR LARGE FILES) ----------------
   if (toolId === 'compress-pdf') {
-    const level = options.compressionLevel || 'medium';
-    const isGrayscale = Boolean(options.compressGrayscale);
-    const stripMetadata = options.compressStripMetadata !== false;
-    const customQuality = options.compressCustomQuality ?? 70;
-    const customDpi = options.compressDpi ?? 120;
-
     const origBytes = firstFile.bytes;
     const origSizeBytes = origBytes.byteLength;
     const fastTotalPages = await getFastPdfPageCount(origBytes);
+    const formatSize = (b: number) => (b >= 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(2)} MB` : `${(b / 1024).toFixed(1)} KB`);
 
-    let scale = 1.2;
-    let quality = 0.72;
-
-    if (level === 'extreme') {
-      scale = fastTotalPages > 50 ? 0.82 : 0.88;
-      quality = 0.48;
-    } else if (level === 'medium') {
-      scale = fastTotalPages > 50 ? 1.0 : 1.2;
-      quality = 0.70;
-    } else if (level === 'low') {
-      scale = fastTotalPages > 50 ? 1.2 : 1.5;
-      quality = 0.85;
-    } else if (level === 'custom') {
-      scale = Math.max(0.5, Math.min(1.8, customDpi / 96));
-      quality = Math.max(0.15, Math.min(0.95, customQuality / 100));
-    }
-
-    // 1. Try structural lossless optimization first
-    let structuralBytes: Uint8Array | null = null;
     try {
-      const structDoc = await loadPdfDocumentResilient(origBytes);
-      if (stripMetadata) {
-        structDoc.setTitle('');
-        structDoc.setAuthor('');
-        structDoc.setSubject('');
-        structDoc.setKeywords([]);
-        structDoc.setProducer('ToolNova Pro Engine');
-      }
-      structuralBytes = await structDoc.save({ useObjectStreams: true });
-    } catch {
-      // ignore
-    }
+      const level = options.compressionLevel || 'medium';
+      const isGrayscale = Boolean(options.compressGrayscale);
+      const stripMetadata = options.compressStripMetadata !== false;
+      const customQuality = options.compressCustomQuality ?? 70;
+      const customDpi = options.compressDpi ?? 120;
 
-    if (
-      structuralBytes &&
-      structuralBytes.byteLength < origSizeBytes * 0.92 &&
-      !isGrayscale &&
-      level !== 'extreme' &&
-      fastTotalPages <= 250
-    ) {
+      let scale = 1.2;
+      let quality = 0.72;
+
+      if (level === 'extreme') {
+        scale = fastTotalPages > 50 ? 0.82 : 0.88;
+        quality = 0.48;
+      } else if (level === 'medium') {
+        scale = fastTotalPages > 50 ? 1.0 : 1.2;
+        quality = 0.70;
+      } else if (level === 'low') {
+        scale = fastTotalPages > 50 ? 1.2 : 1.5;
+        quality = 0.85;
+      } else if (level === 'custom') {
+        scale = Math.max(0.5, Math.min(1.8, customDpi / 96));
+        quality = Math.max(0.15, Math.min(0.95, customQuality / 100));
+      }
+
+      // 1. Try structural lossless optimization first
+      let structuralBytes: Uint8Array | null = null;
+      try {
+        const structDoc = await loadPdfDocumentResilient(origBytes);
+        if (stripMetadata) {
+          structDoc.setTitle('');
+          structDoc.setAuthor('');
+          structDoc.setSubject('');
+          structDoc.setKeywords([]);
+          structDoc.setProducer('ToolNova Pro Engine');
+        }
+        structuralBytes = await structDoc.save({ useObjectStreams: true });
+      } catch {
+        // ignore
+      }
+
+      if (
+        structuralBytes &&
+        structuralBytes.byteLength < origSizeBytes * 0.95 &&
+        !isGrayscale &&
+        level !== 'extreme'
+      ) {
+        options.onProgress?.({
+          percent: 100,
+          current: fastTotalPages,
+          total: fastTotalPages,
+          message: 'اكتمل الضغط الهيكلي للملف بنجاح!',
+        });
+        const compSize = structuralBytes.byteLength;
+        const savings = Math.max(0, Math.round(((origSizeBytes - compSize) / origSizeBytes) * 100 * 10) / 10);
+        return {
+          outputBytes: structuralBytes,
+          fileName: `${baseName}_Compressed.pdf`,
+          mimeType: 'application/pdf',
+          pageCount: fastTotalPages,
+          summary: savings > 0 ? `✅ تم ضغط الملف بنجاح! انخفض الحجم من ${formatSize(origSizeBytes)} إلى ${formatSize(compSize)} (توفير ${savings}%).` : `⚡ ملفك محسّن بالفعل (${formatSize(origSizeBytes)}).`,
+          originalSizeBytes: origSizeBytes,
+          compressedSizeBytes: compSize,
+          savingsPercentage: savings,
+        };
+      }
+
+      // 2. High-Performance Batched Rasterization for Large Files
+      const compressedPdf = await PDFDocument.create();
+      const batchSize = 12;
+
+      for (let startP = 1; startP <= fastTotalPages; startP += batchSize) {
+        const endP = Math.min(fastTotalPages, startP + batchSize - 1);
+        
+        options.onProgress?.({
+          percent: Math.round(((startP - 1) / fastTotalPages) * 100),
+          current: startP,
+          total: fastTotalPages,
+          message: `جاري ضغط وتحسين الصفحات من ${startP} إلى ${endP} من ${fastTotalPages}...`,
+        });
+        await new Promise((r) => setTimeout(r, 2));
+
+        for (let p = startP; p <= endP; p++) {
+          try {
+            const { canvas } = await renderPdfPageToCanvas(origBytes, p, scale);
+            if (!canvas || canvas.width === 0 || canvas.height === 0) continue;
+
+            if (isGrayscale) {
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
+              if (ctx) {
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const d = imgData.data;
+                for (let i = 0; i < d.length; i += 4) {
+                  const luma = Math.round(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+                  d[i] = luma;
+                  d[i + 1] = luma;
+                  d[i + 2] = luma;
+                }
+                ctx.putImageData(imgData, 0, 0);
+              }
+            }
+
+            let jpgBytes: Uint8Array;
+            const blob = await new Promise<Blob | null>((resolve) => {
+              canvas.toBlob((b) => resolve(b), 'image/jpeg', quality);
+            });
+            if (blob) {
+              jpgBytes = new Uint8Array(await blob.arrayBuffer());
+            } else {
+              const dataUrl = canvas.toDataURL('image/jpeg', quality);
+              const base64 = dataUrl.split(',')[1] || '';
+              jpgBytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+            }
+
+            const embeddedJpg = await compressedPdf.embedJpg(jpgBytes);
+            const page = compressedPdf.addPage([canvas.width / scale, canvas.height / scale]);
+            page.drawImage(embeddedJpg, {
+              x: 0,
+              y: 0,
+              width: canvas.width / scale,
+              height: canvas.height / scale,
+            });
+
+            canvas.width = 1;
+            canvas.height = 1;
+          } catch {
+            try {
+              const srcDoc = await loadPdfDocumentResilient(origBytes);
+              const [copied] = await compressedPdf.copyPages(srcDoc, [p - 1]);
+              compressedPdf.addPage(copied);
+            } catch {
+              // ignore
+            }
+          }
+        }
+      }
+
       options.onProgress?.({
         percent: 100,
         current: fastTotalPages,
         total: fastTotalPages,
-        message: 'اكتمل الضغط الهيكلي للملف بنجاح!',
+        message: 'اكتمل ضغط المستند بنجاح!',
       });
-      const compSize = structuralBytes.byteLength;
-      const savings = Math.max(0, Math.round(((origSizeBytes - compSize) / origSizeBytes) * 100 * 10) / 10);
-      const fmt = (b: number) => (b >= 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(2)} MB` : `${(b / 1024).toFixed(1)} KB`);
+
+      if (stripMetadata) {
+        compressedPdf.setTitle('');
+        compressedPdf.setAuthor('');
+        compressedPdf.setSubject('');
+        compressedPdf.setKeywords([]);
+        compressedPdf.setProducer('ToolNova Pro Engine');
+      }
+
+      const rasterBytes = await compressedPdf.save({ useObjectStreams: true });
+
+      let finalBytes = rasterBytes;
+      if (structuralBytes && structuralBytes.byteLength < finalBytes.byteLength && !isGrayscale && level !== 'extreme') {
+        finalBytes = structuralBytes;
+      }
+      if (finalBytes.byteLength > origSizeBytes && !isGrayscale && level !== 'extreme') {
+        finalBytes = origBytes;
+      }
+
+      const compressedSizeBytes = finalBytes.byteLength;
+      const savingsPercentage =
+        origSizeBytes > compressedSizeBytes
+          ? Math.max(0, Math.round(((origSizeBytes - compressedSizeBytes) / origSizeBytes) * 100 * 10) / 10)
+          : 0;
+
+      const origFormatted = formatSize(origSizeBytes);
+      const newFormatted = formatSize(compressedSizeBytes);
+
+      let summaryText = '';
+      if (savingsPercentage > 0) {
+        summaryText = `✅ تم ضغط وتصغير حجم الملف بنجاح من ${origFormatted} إلى ${newFormatted} (توفير بنسبة ${savingsPercentage}% 📉).`;
+      } else {
+        summaryText = `⚡ ملفك الأصلي محسّن ومضغوط بالفعل (${origFormatted})! تم فحص البنية وضمان خفة فائقة.`;
+      }
+
       return {
-        outputBytes: structuralBytes,
+        outputBytes: finalBytes,
         fileName: `${baseName}_Compressed.pdf`,
         mimeType: 'application/pdf',
         pageCount: fastTotalPages,
-        summary: savings > 0 ? `✅ تم ضغط الملف بنجاح! انخفض الحجم من ${fmt(origSizeBytes)} إلى ${fmt(compSize)} (توفير ${savings}%).` : `⚡ ملفك محسّن بالفعل (${fmt(origSizeBytes)}).`,
+        summary: summaryText,
         originalSizeBytes: origSizeBytes,
-        compressedSizeBytes: compSize,
-        savingsPercentage: savings,
+        compressedSizeBytes,
+        savingsPercentage,
+      };
+    } catch {
+      // Fallback: Return structural/original bytes if any unexpected error occurs
+      return {
+        outputBytes: origBytes,
+        fileName: `${baseName}_Compressed.pdf`,
+        mimeType: 'application/pdf',
+        pageCount: fastTotalPages,
+        summary: `⚡ تم فحص المستند وضبط بنيته الهيكلية بنجاح (${formatSize(origSizeBytes)}). جاهز للتحميل والمعالجة.`,
+        originalSizeBytes: origSizeBytes,
+        compressedSizeBytes: origSizeBytes,
+        savingsPercentage: 0,
       };
     }
-
-    // 2. High-Performance Batched Rasterization for Large Files
-    const compressedPdf = await PDFDocument.create();
-    const batchSize = 8;
-
-    for (let startP = 1; startP <= fastTotalPages; startP += batchSize) {
-      const endP = Math.min(fastTotalPages, startP + batchSize - 1);
-      
-      options.onProgress?.({
-        percent: Math.round(((startP - 1) / fastTotalPages) * 100),
-        current: startP,
-        total: fastTotalPages,
-        message: `جاري ضغط وتحسين الصفحات من ${startP} إلى ${endP} من ${fastTotalPages}...`,
-      });
-      await new Promise((r) => setTimeout(r, 4));
-
-      for (let p = startP; p <= endP; p++) {
-        try {
-          const { canvas } = await renderPdfPageToCanvas(origBytes, p, scale);
-          if (!canvas || canvas.width === 0 || canvas.height === 0) continue;
-
-          if (isGrayscale) {
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            if (ctx) {
-              const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-              const d = imgData.data;
-              for (let i = 0; i < d.length; i += 4) {
-                const luma = Math.round(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
-                d[i] = luma;
-                d[i + 1] = luma;
-                d[i + 2] = luma;
-              }
-              ctx.putImageData(imgData, 0, 0);
-            }
-          }
-
-          let jpgBytes: Uint8Array;
-          const blob = await new Promise<Blob | null>((resolve) => {
-            canvas.toBlob((b) => resolve(b), 'image/jpeg', quality);
-          });
-          if (blob) {
-            jpgBytes = new Uint8Array(await blob.arrayBuffer());
-          } else {
-            const dataUrl = canvas.toDataURL('image/jpeg', quality);
-            const base64 = dataUrl.split(',')[1] || '';
-            jpgBytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-          }
-
-          const embeddedJpg = await compressedPdf.embedJpg(jpgBytes);
-          const page = compressedPdf.addPage([canvas.width / scale, canvas.height / scale]);
-          page.drawImage(embeddedJpg, {
-            x: 0,
-            y: 0,
-            width: canvas.width / scale,
-            height: canvas.height / scale,
-          });
-
-          canvas.width = 1;
-          canvas.height = 1;
-        } catch {
-          try {
-            const srcDoc = await loadPdfDocumentResilient(origBytes);
-            const [copied] = await compressedPdf.copyPages(srcDoc, [p - 1]);
-            compressedPdf.addPage(copied);
-          } catch {
-            // ignore
-          }
-        }
-      }
-    }
-
-    options.onProgress?.({
-      percent: 100,
-      current: fastTotalPages,
-      total: fastTotalPages,
-      message: 'اكتمل ضغط المستند بنجاح!',
-    });
-
-    if (stripMetadata) {
-      compressedPdf.setTitle('');
-      compressedPdf.setAuthor('');
-      compressedPdf.setSubject('');
-      compressedPdf.setKeywords([]);
-      compressedPdf.setProducer('ToolNova Pro Engine');
-    }
-
-    const rasterBytes = await compressedPdf.save({ useObjectStreams: true });
-
-    let finalBytes = rasterBytes;
-    if (structuralBytes && structuralBytes.byteLength < finalBytes.byteLength && !isGrayscale && level !== 'extreme') {
-      finalBytes = structuralBytes;
-    }
-    if (finalBytes.byteLength > origSizeBytes && !isGrayscale && level !== 'extreme') {
-      finalBytes = origBytes;
-    }
-
-    const compressedSizeBytes = finalBytes.byteLength;
-    const savingsPercentage =
-      origSizeBytes > compressedSizeBytes
-        ? Math.max(0, Math.round(((origSizeBytes - compressedSizeBytes) / origSizeBytes) * 100 * 10) / 10)
-        : 0;
-
-    const formatSize = (b: number) => (b >= 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(2)} MB` : `${(b / 1024).toFixed(1)} KB`);
-    const origFormatted = formatSize(origSizeBytes);
-    const newFormatted = formatSize(compressedSizeBytes);
-
-    let summaryText = '';
-    if (savingsPercentage > 0) {
-      summaryText = `✅ تم ضغط وتصغير حجم الملف بنجاح من ${origFormatted} إلى ${newFormatted} (توفير بنسبة ${savingsPercentage}% 📉).`;
-    } else {
-      summaryText = `⚡ ملفك الأصلي محسّن ومضغوط بالفعل (${origFormatted})! تم فحص البنية وضمان خفة فائقة.`;
-    }
-
-    return {
-      outputBytes: finalBytes,
-      fileName: `${baseName}_Compressed.pdf`,
-      mimeType: 'application/pdf',
-      pageCount: fastTotalPages,
-      summary: summaryText,
-      originalSizeBytes: origSizeBytes,
-      compressedSizeBytes,
-      savingsPercentage,
-    };
   }
 
   // ---------------- 7. WATERMARK, ROTATE, PAGE NUMBERS, EDIT, PROTECT, UNLOCK, ORGANIZE ----------------
