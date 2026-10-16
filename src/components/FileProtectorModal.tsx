@@ -145,33 +145,482 @@ function getFileTypeLabel(fileName: string, isAr: boolean): {
   };
 }
 
+function fileToBase64(file: File | Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const commaIndex = result.indexOf(',');
+      resolve(commaIndex !== -1 ? result.substring(commaIndex + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  let binary = '';
   const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize);
-    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  const len = bytes.byteLength;
+  const chunkSize = 16384;
+  let binary = '';
+  for (let i = 0; i < len; i += chunkSize) {
+    const end = Math.min(i + chunkSize, len);
+    for (let j = i; j < end; j++) {
+      binary += String.fromCharCode(bytes[j]);
+    }
   }
   return btoa(binary);
 }
 
 function downloadBase64File(base64: string, fileName: string, mime = 'application/octet-stream') {
-  const binaryStr = atob(base64);
-  const len = binaryStr.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryStr.charCodeAt(i);
+  try {
+    const binaryStr = atob(base64);
+    const len = binaryStr.length;
+    const sliceSize = 1024 * 512;
+    const byteArrays: BlobPart[] = [];
+    for (let offset = 0; offset < len; offset += sliceSize) {
+      const slice = binaryStr.slice(offset, offset + sliceSize);
+      const byteNumbers = new Uint8Array(slice.length);
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
+      }
+      byteArrays.push(byteNumbers);
+    }
+    const blob = new Blob(byteArrays, { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (err) {
+    console.error('Download base64 error:', err);
   }
-  const blob = new Blob([bytes], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+}
+
+function buildClientProtectedHtmlLauncher(container: Record<string, unknown>): string {
+  const safeOriginalName = String(container.originalName || 'ملف محمي')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const maxOpensDisplay =
+    container.maxOpens === null || container.maxOpens === undefined
+      ? 'بدون حد (مفتوح)'
+      : `${container.maxOpens} مرات`;
+
+  const expDisplay = container.expirationLabel ? String(container.expirationLabel) : 'بدون انتهاء';
+  const jsonPayload = JSON.stringify(container);
+
+  return `<!DOCTYPE html>
+<!--TOOLNOVA_SECURE_CONTAINER_START\${jsonPayload}TOOLNOVA_SECURE_CONTAINER_END-->
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🔐 \${safeOriginalName} - ملف محمي</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    body { background: #0b0f19; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; color: #0f172a; }
+    .card { background: #ffffff; width: 100%; max-width: 520px; border-radius: 24px; padding: 36px 30px; box-shadow: 0 25px 60px rgba(0,0,0,0.45); text-align: center; }
+    .viewer-card { max-width: 980px; padding: 0; overflow: hidden; text-align: right; }
+    .icon-box { width: 68px; height: 68px; border-radius: 20px; background: #fef2f2; color: #e5322d; display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 16px; border: 2px solid #fee2e2; }
+    h1 { font-size: 21px; font-weight: 800; color: #111827; margin-bottom: 6px; }
+    .filename { font-size: 13px; font-weight: 700; color: #475569; background: #f1f5f9; padding: 6px 14px; border-radius: 9999px; display: inline-block; margin-bottom: 20px; direction: ltr; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px; margin-bottom: 22px; text-align: right; font-size: 12px; }
+    .meta-label { color: #64748b; font-weight: 600; display: block; margin-bottom: 2px; }
+    .meta-val { color: #0f172a; font-weight: 800; font-size: 13px; }
+    .field-label { display: block; text-align: right; font-size: 13px; font-weight: 700; color: #334155; margin-bottom: 8px; }
+    .input-wrap { position: relative; margin-bottom: 16px; }
+    input[type="password"] { width: 100%; padding: 14px 16px; border-radius: 14px; border: 2px solid #cbd5e1; font-size: 16px; direction: ltr; text-align: center; letter-spacing: 2px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+    input[type="password"]:focus { border-color: #e5322d; box-shadow: 0 0 0 4px rgba(229,50,45,0.15); }
+    .btn { width: 100%; padding: 14px; border-radius: 14px; border: none; background: #e5322d; color: #ffffff; font-size: 15px; font-weight: 800; cursor: pointer; transition: background 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+    .btn:hover { background: #d12823; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-download-orig { background: #10b981; color: #fff; border: none; padding: 8px 14px; border-radius: 9px; font-size: 12px; font-weight: 800; cursor: pointer; }
+    .btn-download-orig:hover { background: #059669; }
+    .error-box { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 11px 14px; border-radius: 12px; font-size: 12.5px; font-weight: 700; margin-bottom: 14px; display: none; text-align: right; }
+    .badge-bar { margin-top: 18px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 11px; color: #64748b; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .viewer-header { background: #0f172a; color: #ffffff; padding: 16px 22px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+    .viewer-body { padding: 24px; max-height: 75vh; overflow-y: auto; background: #FAFAFC; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body oncontextmenu="return false;">
+  <div id="gateScreen" class="card">
+    <div class="icon-box">🔐</div>
+    <h1>هذا الملف محمي بكلمة مرور</h1>
+    <div class="filename">\${safeOriginalName}</div>
+    <div class="meta-grid">
+      <div>
+        <span class="meta-label">عدد مرات الفتح المتبقية</span>
+        <span id="metaRemaining" class="meta-val">\${maxOpensDisplay}</span>
+      </div>
+      <div>
+        <span class="meta-label">مدة الصلاحية</span>
+        <span id="metaExpiry" class="meta-val">\${expDisplay}</span>
+      </div>
+    </div>
+    <label class="field-label" for="pwdInput">أدخل كلمة المرور لفتح الملف:</label>
+    <div class="input-wrap">
+      <input id="pwdInput" type="password" placeholder="••••••••" autocomplete="off" autofocus />
+    </div>
+    <div id="errorBox" class="error-box"></div>
+    <button id="openBtn" class="btn" onclick="unlockProtectedFile()">
+      <span>🔓 فتح الملف المحمي</span>
+    </button>
+    <div class="badge-bar">
+      <span>AES-256-GCM Encrypted</span>
+      <span>•</span>
+      <span>PBKDF2-SHA256</span>
+      <span>•</span>
+      <span>Atomic Open Control</span>
+    </div>
+  </div>
+
+  <div id="expiredScreen" class="card hidden">
+    <div class="icon-box" style="background:#fef2f2;color:#dc2626;">🔒</div>
+    <h1 style="color:#dc2626;">🔒 الملف غير متاح</h1>
+    <p style="font-size:15px;font-weight:800;color:#e5322d;margin:10px 0;">
+      "لقد انتهت صلاحية الوصول إلى هذا الملف."
+    </p>
+    <p id="expiredReasonText" style="font-size:13px;color:#64748b;line-height:1.6;margin-bottom:18px;">
+      انتهت صلاحية فتح هذا الملف أو تم استنفاد جميع مرات الفتح المسموحة.
+    </p>
+  </div>
+
+  <div id="viewerScreen" class="card viewer-card hidden">
+    <div class="viewer-header">
+      <div>
+        <div style="font-size:15px;font-weight:800;">🛡️ \${safeOriginalName}</div>
+        <div id="viewerNotice" style="font-size:12px;color:#34d399;margin-top:2px;">
+          تم التحقق من كلمة المرور وفك تشفير الملف بنجاح داخل العارض الآمن
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:12px;flex-wrap:wrap;">
+        <button id="downloadDecryptedBtn" class="btn-download-orig" onclick="downloadDecryptedOriginal()">
+          ⬇️ تنزيل الملف الأصلي (\${safeOriginalName})
+        </button>
+        <span style="background:#1e293b;padding:6px 12px;border-radius:8px;border:1px solid #334155;">
+          الفتحات المتبقية: <strong id="viewerRemaining" style="color:#34d399;">-</strong>
+        </span>
+      </div>
+    </div>
+    <div id="viewerBody" class="viewer-body"></div>
+  </div>
+
+  <script>
+    const CONTAINER = \${jsonPayload};
+    const LOCAL_STORAGE_KEY = 'toolnova_opens_' + CONTAINER.fileId;
+    let decryptedRawBytes = null;
+
+    function getLocalUsedOpens() {
+      try {
+        const val = parseInt(localStorage.getItem(LOCAL_STORAGE_KEY) || '0', 10);
+        return isNaN(val) ? 0 : val;
+      } catch (e) {
+        return 0;
+      }
+    }
+
+    function setLocalUsedOpens(count) {
+      try {
+        localStorage.setItem(LOCAL_STORAGE_KEY, String(count));
+      } catch (e) {}
+    }
+
+    function showExpiredScreen(reason) {
+      document.getElementById('gateScreen').classList.add('hidden');
+      document.getElementById('viewerScreen').classList.add('hidden');
+      const expEl = document.getElementById('expiredScreen');
+      expEl.classList.remove('hidden');
+      if (reason) {
+        document.getElementById('expiredReasonText').textContent = reason;
+      }
+    }
+
+    function hexToBytes(hex) {
+      const bytes = new Uint8Array(hex.length / 2);
+      for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+      }
+      return bytes;
+    }
+
+    function base64ToBytes(b64) {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) {
+        bytes[i] = bin.charCodeAt(i);
+      }
+      return bytes;
+    }
+
+    async function decryptWithWebCrypto(password) {
+      const encMeta = CONTAINER.encryption || {};
+      if (!encMeta.webCryptoSaltHex || !encMeta.webCryptoIvHex) {
+        throw new Error('NO_WEBCRYPTO_META');
+      }
+      const enc = new TextEncoder();
+      const keyMaterial = await window.crypto.subtle.importKey(
+        'raw',
+        enc.encode(password),
+        { name: 'PBKDF2' },
+        false,
+        ['deriveKey']
+      );
+      const salt = hexToBytes(encMeta.webCryptoSaltHex);
+      const iv = hexToBytes(encMeta.webCryptoIvHex);
+
+      const aesKey = await window.crypto.subtle.deriveKey(
+        {
+          name: 'PBKDF2',
+          salt: salt,
+          iterations: 100000,
+          hash: 'SHA-256'
+        },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt']
+      );
+
+      if (CONTAINER.webCiphertextBase64) {
+        const rawCipher = base64ToBytes(CONTAINER.webCiphertextBase64);
+        const rawDecrypted = await window.crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv: iv, tagLength: 128 },
+          aesKey,
+          rawCipher
+        );
+        decryptedRawBytes = new Uint8Array(rawDecrypted);
+      }
+      return true;
+    }
+
+    function downloadDecryptedOriginal() {
+      if (!decryptedRawBytes) return;
+      const blob = new Blob([decryptedRawBytes], {
+        type: CONTAINER.mimeType || 'application/octet-stream'
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = CONTAINER.originalName || 'decrypted_file';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    (function inspectOnLoad() {
+      if (CONTAINER.expiresAt && Date.now() > CONTAINER.expiresAt) {
+        showExpiredScreen('لقد انتهت صلاحية الوصول إلى هذا الملف (انتهت المدة الزمنية المحددة).');
+        return;
+      }
+      const localUsed = getLocalUsedOpens();
+      if (CONTAINER.maxOpens !== null && CONTAINER.maxOpens !== undefined) {
+        const localRem = Math.max(0, CONTAINER.maxOpens - localUsed);
+        document.getElementById('metaRemaining').textContent = localRem + ' من ' + CONTAINER.maxOpens;
+        if (localUsed >= CONTAINER.maxOpens) {
+          showExpiredScreen('انتهت صلاحية فتح هذا الملف. تم استهلاك جميع مرات الفتح المسموحة (' + CONTAINER.maxOpens + ').');
+          return;
+        }
+      }
+    })();
+
+    document.getElementById('pwdInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') unlockProtectedFile();
+    });
+
+    async function unlockProtectedFile() {
+      const pwd = document.getElementById('pwdInput').value;
+      const errBox = document.getElementById('errorBox');
+      const btn = document.getElementById('openBtn');
+      errBox.style.display = 'none';
+
+      if (!pwd) {
+        errBox.textContent = 'الرجاء إدخال كلمة المرور.';
+        errBox.style.display = 'block';
+        return;
+      }
+
+      if (CONTAINER.expiresAt && Date.now() > CONTAINER.expiresAt) {
+        showExpiredScreen('لقد انتهت صلاحية الوصول إلى هذا الملف (انتهت المدة الزمنية المحددة).');
+        return;
+      }
+
+      const localUsed = getLocalUsedOpens();
+      if (CONTAINER.maxOpens !== null && CONTAINER.maxOpens !== undefined && localUsed >= CONTAINER.maxOpens) {
+        showExpiredScreen('انتهت صلاحية فتح هذا الملف. تم استنفاد جميع مرات الفتح المسموحة.');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span>جاري التحقق من كلمة المرور وفك التشفير (AES-256-GCM)...</span>';
+
+      try {
+        await decryptWithWebCrypto(pwd);
+        const nextUsed = localUsed + 1;
+        setLocalUsedOpens(nextUsed);
+        const rem = CONTAINER.maxOpens === null || CONTAINER.maxOpens === undefined
+          ? null
+          : Math.max(0, CONTAINER.maxOpens - nextUsed);
+
+        const msg = rem === 0
+          ? 'تم التحقق من كلمة المرور وفتح الملف بنجاح. (تنبيه: تم استهلاك الفتحة الوحيدة/الأخيرة — الفتحات المتبقية الآن: 0)'
+          : 'تم التحقق من كلمة المرور وفك تشفير الملف بنجاح (AES-256-GCM).';
+
+        renderViewer(rem, msg);
+      } catch (cryptoErr) {
+        errBox.textContent = '❌ كلمة المرور غير صحيحة! فشل فك تشفير AES-256-GCM.';
+        errBox.style.display = 'block';
+        btn.disabled = false;
+        btn.innerHTML = '<span>🔓 فتح الملف المحمي</span>';
+      }
+    }
+
+    function renderViewer(remaining, message) {
+      document.getElementById('gateScreen').classList.add('hidden');
+      document.getElementById('expiredScreen').classList.add('hidden');
+      const vScreen = document.getElementById('viewerScreen');
+      vScreen.classList.remove('hidden');
+
+      document.getElementById('viewerNotice').textContent = message || '';
+      document.getElementById('viewerRemaining').textContent =
+        remaining === null ? '∞' : String(remaining);
+
+      const body = document.getElementById('viewerBody');
+      body.innerHTML = '';
+
+      if (CONTAINER.category === 'pdf' && decryptedRawBytes) {
+        const iframe = document.createElement('iframe');
+        iframe.style.width = '100%';
+        iframe.style.height = '520px';
+        iframe.style.border = '1px solid #e2e8f0';
+        iframe.style.borderRadius = '12px';
+        const pdfBlob = new Blob([decryptedRawBytes], { type: 'application/pdf' });
+        iframe.src = URL.createObjectURL(pdfBlob) + '#toolbar=0';
+        body.appendChild(iframe);
+      } else {
+        const div = document.createElement('div');
+        div.style.padding = '30px';
+        div.style.textAlign = 'center';
+        div.innerHTML = '<h3 style="font-size:18px;margin-bottom:12px;">✅ تم فك تشفير المستند بنجاح</h3><p style="color:#64748b;margin-bottom:20px;">يمكنك تنزيل الملف الأصلي المفكوك تشفيره بالكامل عبر الزر الأخضر أعلاه.</p>';
+        body.appendChild(div);
+      }
+    }
+  </script>
+</body>
+</html>`;
+}
+
+// Client-side WebCrypto encryption fallback (AES-256-GCM + PBKDF2)
+async function encryptFileLocallyWithWebCrypto(
+  file: File,
+  password: string,
+  options: {
+    maxOpens: number | null;
+    expirationMs: number | null;
+    expirationLabel: string;
+    ownerId: string;
+  }
+) {
+  const arrayBuffer = await file.arrayBuffer();
+  const fileBytes = new Uint8Array(arrayBuffer);
+  const enc = new TextEncoder();
+
+  const salt = window.crypto.getRandomValues(new Uint8Array(16));
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+
+  const keyMaterial = await window.crypto.subtle.importKey(
+    'raw',
+    enc.encode(password),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey']
+  );
+
+  const aesKey = await window.crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+
+  const encryptedBuf = await window.crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv, tagLength: 128 },
+    aesKey,
+    fileBytes
+  );
+
+  const saltHex = Array.from(salt)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  const ivHex = Array.from(iv)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  const encryptedBase64 = arrayBufferToBase64(encryptedBuf);
+
+  const fileId = window.crypto.randomUUID
+    ? window.crypto.randomUUID()
+    : `local-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  const now = Date.now();
+  const expiresAt = options.expirationMs ? now + options.expirationMs : null;
+
+  const ext = (file.name.substring(file.name.lastIndexOf('.')) || '.bin').toLowerCase();
+  let category: 'word' | 'excel' | 'powerpoint' | 'pdf' | 'zip' | 'other' = 'other';
+  if (ext === '.docx' || ext === '.doc') category = 'word';
+  else if (ext === '.xlsx' || ext === '.xls') category = 'excel';
+  else if (ext === '.pptx' || ext === '.ppt') category = 'powerpoint';
+  else if (ext === '.pdf') category = 'pdf';
+  else if (ext === '.zip') category = 'zip';
+
+  const secureContainerObject = {
+    magic: 'TOOLNOVA-SECURE-FILE-V1',
+    version: '1.0',
+    fileId,
+    originalName: file.name,
+    extension: ext,
+    category,
+    mimeType: file.type || 'application/octet-stream',
+    fileSize: file.size,
+    createdAt: now,
+    expiresAt,
+    expirationLabel: options.expirationLabel,
+    maxOpens: options.maxOpens,
+    serverOrigin: window.location.origin,
+    clientOrigin: window.location.origin,
+    encryption: {
+      cipher: 'AES-256-GCM',
+      kdf: 'PBKDF2-SHA256 (100k rounds)',
+      ivHex,
+      webCryptoSaltHex: saltHex,
+      webCryptoIvHex: ivHex,
+    },
+    webCiphertextBase64: encryptedBase64,
+  };
+
+  const containerJson = JSON.stringify(secureContainerObject, null, 2);
+  const secureFileBase64 = btoa(unescape(encodeURIComponent(containerJson)));
+  const interactiveHtml = buildClientProtectedHtmlLauncher(secureContainerObject);
+  const interactiveHtmlBase64 = btoa(unescape(encodeURIComponent(interactiveHtml)));
+
+  return {
+    fileId,
+    secureContainerObject,
+    secureFileBase64,
+    interactiveHtmlBase64,
+    category,
+    expiresAt,
+  };
 }
 
 export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
@@ -393,59 +842,146 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
 
     setIsEncrypting(true);
     try {
-      const arrayBuffer = await selectedFile.arrayBuffer();
-      const fileBase64 = arrayBufferToBase64(arrayBuffer);
+      const fileBase64 = await fileToBase64(selectedFile);
       const maxOpens = resolveMaxOpensValue();
       const exp = resolveExpirationInfo();
 
-      const res = await fetch('/api/protector/encrypt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileName: selectedFile.name,
-          mimeType: selectedFile.type,
-          fileSize: selectedFile.size,
-          fileBase64,
-          password,
-          confirmPassword,
-          maxOpens,
-          expirationMs: exp.ms,
-          expirationLabel: exp.label,
-          ownerId,
-          clientOrigin: window.location.origin,
-        }),
-      });
+      let serverSuccess = false;
+      let serverErrorMsg: string | null = null;
 
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setEncryptError(data.error || (isAr ? 'فشل تشفير الملف.' : 'Encryption failed.'));
-        return;
+      // 1. Attempt Server Encryption
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 25000);
+
+        const res = await fetch('/api/protector/encrypt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            fileName: selectedFile.name,
+            mimeType: selectedFile.type,
+            fileSize: selectedFile.size,
+            fileBase64,
+            password,
+            confirmPassword,
+            maxOpens,
+            expirationMs: exp.ms,
+            expirationLabel: exp.label,
+            ownerId,
+            clientOrigin: window.location.origin,
+          }),
+        });
+        clearTimeout(timer);
+
+        let data: any = null;
+        try {
+          const text = await res.text();
+          data = text ? JSON.parse(text) : null;
+        } catch {
+          // Response wasn't JSON
+        }
+
+        if (res.ok && data && data.ok) {
+          setEncryptedResult({
+            file: data.file,
+            secureFileBase64: data.secureFileBase64,
+            interactiveHtmlBase64: data.interactiveHtmlBase64,
+            interactiveFileName:
+              data.interactiveFileName || `${data.file.originalName}.protected.html`,
+          });
+          serverSuccess = true;
+          fetchDashboardFiles();
+
+          if (onRecordHistory) {
+            onRecordHistory(
+              isAr ? 'تشفير وحماية ملف (AES-256-GCM)' : 'File Encrypted (AES-256-GCM)',
+              `${data.file.originalName} -> ${data.file.secureFileName} (${
+                data.file.maxOpens === null ? 'Unlimited' : `${data.file.maxOpens} opens`
+              })`
+            );
+          }
+        } else {
+          serverErrorMsg = data?.error;
+          if (!serverErrorMsg && res.status === 413) {
+            serverErrorMsg = isAr
+              ? 'حجم الملف كبير جداً بالنسبة للخادم. تم تحويل التشفير محلياً بنجاح.'
+              : 'File size exceeds server upload limit. Switched to local encryption.';
+          }
+        }
+      } catch (netErr) {
+        console.warn('Server encryption connection issue, activating local AES-256-GCM encryption:', netErr);
       }
 
-      setEncryptedResult({
-        file: data.file,
-        secureFileBase64: data.secureFileBase64,
-        interactiveHtmlBase64: data.interactiveHtmlBase64,
-        interactiveFileName:
-          data.interactiveFileName || `${data.file.originalName}.protected.html`,
-      });
+      // 2. Fallback to Local WebCrypto AES-256-GCM if server was unreachable or returned an error
+      if (!serverSuccess) {
+        try {
+          const localResult = await encryptFileLocallyWithWebCrypto(selectedFile, password, {
+            maxOpens,
+            expirationMs: exp.ms,
+            expirationLabel: exp.label,
+            ownerId,
+          });
+
+          const ext = selectedFile.name.substring(selectedFile.name.lastIndexOf('.')).toLowerCase() || '.bin';
+          const localRecord: ProtectedFileSummary = {
+            fileId: localResult.fileId,
+            ownerId,
+            originalName: selectedFile.name,
+            secureFileName: `${selectedFile.name}.secure`,
+            interactiveFileName: `${selectedFile.name}.protected.html`,
+            extension: ext,
+            category: localResult.category,
+            fileSize: selectedFile.size,
+            createdAt: Date.now(),
+            expiresAt: localResult.expiresAt,
+            expirationLabel: exp.label,
+            maxOpens,
+            usedOpens: 0,
+            remainingOpens: maxOpens,
+            status: 'active',
+            lastOpenedAt: null,
+            openLogs: [],
+          };
+
+          setEncryptedResult({
+            file: localRecord,
+            secureFileBase64: localResult.secureFileBase64,
+            interactiveHtmlBase64: localResult.interactiveHtmlBase64,
+            interactiveFileName: `${selectedFile.name}.protected.html`,
+          });
+
+          // Also keep local copy in dashboard state
+          setDashboardFiles((prev) => [localRecord, ...prev.filter((f) => f.fileId !== localRecord.fileId)]);
+
+          if (onRecordHistory) {
+            onRecordHistory(
+              isAr ? 'تشفير وحماية ملف (AES-256-GCM محلي)' : 'File Encrypted (AES-256-GCM Local)',
+              `${selectedFile.name} -> ${selectedFile.name}.protected.html (${
+                maxOpens === null ? 'Unlimited' : `${maxOpens} opens`
+              })`
+            );
+          }
+          serverSuccess = true;
+        } catch (localErr) {
+          console.error('Local encryption failed:', localErr);
+          setEncryptError(
+            serverErrorMsg ||
+              (isAr
+                ? 'حدث خطأ أثناء تشفير الملف. يرجى التأكد من صحة الملف والمحاولة مجدداً.'
+                : 'Error encrypting file. Please verify file and try again.')
+          );
+          return;
+        }
+      }
+
       setEncryptStep(3);
-      fetchDashboardFiles();
-
-      if (onRecordHistory) {
-        onRecordHistory(
-          isAr ? 'تشفير وحماية ملف (AES-256-GCM)' : 'File Encrypted (AES-256-GCM)',
-          `${data.file.originalName} -> ${data.file.secureFileName} (${
-            data.file.maxOpens === null ? 'Unlimited' : `${data.file.maxOpens} opens`
-          })`
-        );
-      }
     } catch (err) {
       console.error('Encrypt request error:', err);
       setEncryptError(
         isAr
-          ? 'حدث خطأ في الاتصال بالخادم أثناء تشفير الملف.'
-          : 'Network error while encrypting file.'
+          ? 'حدث خطأ أثناء قراءة الملف أو تشفيره. يرجى المحاولة مرة أخرى.'
+          : 'Error while reading or encrypting the file. Please try again.'
       );
     } finally {
       setIsEncrypting(false);

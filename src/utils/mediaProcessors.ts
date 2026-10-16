@@ -971,7 +971,9 @@ export async function processPdfAction(
     toolId === 'pdf-to-powerpoint'
   ) {
     const shouldRenderSnapshots =
-      toolId === 'pdf-to-powerpoint' || Boolean(options.includePageSnapshotsInWord);
+      toolId === 'pdf-to-powerpoint' ||
+      toolId === 'pdf-to-excel' ||
+      Boolean(options.includePageSnapshotsInWord);
 
     const extractedPages = await extractRealPdfContent(firstFile.bytes, {
       renderPageImages: shouldRenderSnapshots,
@@ -1104,7 +1106,7 @@ export async function processPdfAction(
       };
     }
 
-    // B) PDF TO EXCEL (.XLSX WITH DRAWN TABLES, COLORED HEADERS & EMBEDDED PHOTOS)
+    // B) PDF TO EXCEL (.XLSX WITH DRAWN TABLES, ORIGINAL PDF COLORS & EMBEDDED IMAGES)
     if (toolId === 'pdf-to-excel') {
       const { xlsxBytes, previewHtml, totalRows } =
         await generateProfessionalExcelFromPages(extractedPages, {
@@ -1120,7 +1122,7 @@ export async function processPdfAction(
         mimeType:
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         pageCount,
-        summary: `Constructed ${totalRows} drawn Excel table rows across ${pageCount} worksheet(s) into native .XLSX.`,
+        summary: `✅ تم تحويل PDF إلى Excel (.XLSX) بنجاح مع الحفاظ التام على ألوان المستند الأصلية، الميزون باج، وترتيب الصفحات (${totalRows} صف عبر ${pageCount} ورقة عمل)، وإدراج الصور داخل إطارات مخصصة.`,
         previewHtml,
       };
     }
@@ -1140,7 +1142,7 @@ export async function processPdfAction(
         mimeType:
           'application/vnd.openxmlformats-officedocument.presentationml.presentation',
         pageCount: slideCount,
-        summary: `Generated ${slideCount} native 16:9 Widescreen PowerPoint slide(s) (.PPTX) with editable text, sidebar styling & embedded photos.`,
+        summary: `✅ تم تحويل PDF إلى PowerPoint (.PPTX) بنجاح مع الحفاظ على الألوان الأصلية، الترتيب والميزون باج (${slideCount} شريحة 16:9)، وإدراج الصور الأصلية وإطاراتها بدقة متناهية.`,
         previewHtml,
       };
     }

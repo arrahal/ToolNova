@@ -465,7 +465,10 @@ async function buildSecureViewerPayload(
   if (ext === '.pdf') {
     return {
       viewerType: 'pdf',
-      pdfBase64: decryptedBuffer.toString('base64'),
+      pdfBase64:
+        decryptedBuffer.byteLength <= 3 * 1024 * 1024
+          ? decryptedBuffer.toString('base64')
+          : undefined,
     };
   }
 
@@ -1172,13 +1175,20 @@ function buildInteractiveProtectedHtmlLauncher(containerObj: Record<string, unkn
           box.appendChild(ul);
           body.appendChild(box);
         });
-      } else if (viewer.viewerType === 'pdf' && viewer.pdfBase64) {
+      } else if (viewer.viewerType === 'pdf') {
         const iframe = document.createElement('iframe');
         iframe.style.width = '100%';
         iframe.style.height = '520px';
         iframe.style.border = '1px solid #e2e8f0';
         iframe.style.borderRadius = '12px';
-        iframe.src = 'data:application/pdf;base64,' + viewer.pdfBase64 + '#toolbar=0';
+        let pdfSrc = '';
+        if (typeof decryptedRawBytes !== 'undefined' && decryptedRawBytes && decryptedRawBytes.length > 0) {
+          const pdfBlob = new Blob([decryptedRawBytes], { type: 'application/pdf' });
+          pdfSrc = URL.createObjectURL(pdfBlob) + '#toolbar=0';
+        } else if (viewer.pdfBase64) {
+          pdfSrc = 'data:application/pdf;base64,' + viewer.pdfBase64 + '#toolbar=0';
+        }
+        iframe.src = pdfSrc;
         body.appendChild(iframe);
       } else if (viewer.viewerType === 'zip' && viewer.zipEntries) {
         const div = document.createElement('div');
@@ -1267,8 +1277,30 @@ async function startServer() {
     next();
   });
 
-  // Support up to 75MB JSON body for base64 file uploads (allows 50MB raw files)
-  app.use(express.json({ limit: '75mb' }));
+  // Support up to 150MB JSON body for base64 file uploads (allows large files)
+  app.use(express.json({ limit: '150mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '150mb' }));
+
+  // JSON Error handler to return clean JSON when file exceeds limit or JSON is malformed
+  app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err) {
+      if (err.type === 'entity.too.large' || err.status === 413) {
+        res.status(413).json({
+          ok: false,
+          error: 'حجم الملف المرفوع كبير جداً ويتجاوز سعة خادم التشفير. يرجى اختيار ملف بحجم مناسب (أقل من 75 ميجابايت).',
+        });
+        return;
+      }
+      if (err instanceof SyntaxError && 'body' in err) {
+        res.status(400).json({
+          ok: false,
+          error: 'بيانات الطلب غير صالحة.',
+        });
+        return;
+      }
+    }
+    next(err);
+  });
 
   // ==========================================================================
   // NEW SERVICE: 🔐 FILE PROTECTOR API (/api/protector/*)
@@ -1308,13 +1340,17 @@ async function startServer() {
       // Sanitize filename & validate extension
       const cleanName = path.basename(fileName).replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
       const ext = path.extname(cleanName).toLowerCase();
-      const formatSpec = SUPPORTED_PROTECTED_FORMATS[ext];
+      let formatSpec = SUPPORTED_PROTECTED_FORMATS[ext];
 
       if (!formatSpec) {
-        res.status(400).json({
-          error: `صيغة الملف (${ext || 'غير معروفة'}) غير مدعومة حالياً. الصيغ المدعومة: Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF (.pdf), ZIP (.zip).`,
-        });
-        return;
+        formatSpec = {
+          extension: ext || '.bin',
+          category: 'other',
+          labelAr: 'ملف محمي',
+          labelEn: 'Protected File',
+          mimeTypes: [mimeType || 'application/octet-stream'],
+          maxSizeBytes: 75 * 1024 * 1024,
+        };
       }
 
       if (!password || typeof password !== 'string' || password.length < 4) {
@@ -1947,6 +1983,75 @@ async function startServer() {
       ).toString('base64'),
       interactiveHtmlBase64: Buffer.from(interactiveHtmlContent, 'utf-8').toString('base64'),
     });
+  });
+
+  // Direct binary/HTML streaming download (avoids high-memory base64 allocations on clients)
+  app.get('/api/protector/download/:fileId', (req, res) => {
+    const safeId = sanitizeFileId(req.params.fileId);
+    if (!safeId) {
+      res.status(400).send('Invalid file ID');
+      return;
+    }
+
+    const db = readProtectorDb();
+    const record = db[safeId];
+    if (!record || record.status === 'deleted') {
+      res.status(404).send('File not found');
+      return;
+    }
+
+    const hostHeader = req.headers.host || 'localhost:3000';
+    const protoHeader = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
+    const serverOrigin = `${protoHeader}://${hostHeader}`;
+
+    const encPath = getEncryptedFilePath(record.fileId);
+    const encryptedBytes = fs.existsSync(encPath) ? fs.readFileSync(encPath) : Buffer.alloc(0);
+
+    const secureContainerObject = {
+      magic: 'TOOLNOVA-SECURE-FILE-V1',
+      version: '1.0',
+      fileId: record.fileId,
+      originalName: record.originalName,
+      extension: record.extension,
+      category: record.category,
+      mimeType: record.mimeType,
+      fileSize: record.fileSize,
+      createdAt: record.createdAt,
+      expiresAt: record.expiresAt,
+      expirationLabel: record.expirationLabel,
+      maxOpens: record.maxOpens,
+      serverOrigin,
+      encryption: {
+        cipher: 'AES-256-GCM',
+        kdf: 'Argon2id (m=16384, t=2, p=1)',
+        ivHex: record.cryptoMeta.fileIvHex,
+        authTagHex: record.cryptoMeta.fileAuthTagHex,
+        signature: record.cryptoMeta.containerHmacHex,
+        webCryptoSaltHex: record.cryptoMeta.webCryptoSaltHex,
+        webCryptoIvHex: record.cryptoMeta.webCryptoIvHex,
+      },
+      ciphertextBase64: encryptedBytes.toString('base64'),
+      webCiphertextBase64: record.cryptoMeta.webFileCiphertextBase64,
+      webViewerCiphertextBase64: record.cryptoMeta.webViewerCiphertextBase64,
+    };
+
+    const format = req.query.format === 'secure' ? 'secure' : 'interactive';
+    if (format === 'secure') {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${encodeURIComponent(record.secureFileName)}"`
+      );
+      res.send(JSON.stringify(secureContainerObject, null, 2));
+    } else {
+      const htmlContent = buildInteractiveProtectedHtmlLauncher(secureContainerObject);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${encodeURIComponent(record.originalName)}.protected.html"`
+      );
+      res.send(htmlContent);
+    }
   });
 
   // 6. Dashboard: Revoke a protected file (إلغاء صلاحية الملف فوراً)

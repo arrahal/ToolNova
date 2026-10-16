@@ -60,6 +60,7 @@ export interface ExtractedPdfPage {
   hasDarkSidebar: boolean;
   sidebarBgHex: string; // e.g. "142642"
   accentHex: string; // e.g. "C86D3B"
+  primaryHex?: string; // Dominant original PDF primary/brand color
   splitRatio: number; // e.g. 0.34
   extractedPhotoPngBytes?: Uint8Array;
   extractedPhotoDataUrl?: string;
@@ -257,6 +258,8 @@ export async function extractRealPdfContent(
     let splitRatio = 0.34;
     let sidebarBgHex = '142642';
     let hasDarkSidebar = false;
+    let detectedPrimaryHex = '142642';
+    let detectedAccentHex = '2563EB';
     let renderedPageDataUrl: string | undefined = undefined;
 
     let renderScale = 1.5;
@@ -304,6 +307,7 @@ export async function extractRealPdfContent(
         hasColoredSidebar = colorDelta > 45;
         if (hasColoredSidebar) {
           sidebarBgHex = rgbToHex(leftR, leftG, leftB);
+          detectedPrimaryHex = sidebarBgHex;
           for (let px = Math.floor(canvas.width * 0.18); px < Math.floor(canvas.width * 0.55); px++) {
             const r = rowPixels[px * 4];
             const g = rowPixels[px * 4 + 1];
@@ -314,10 +318,59 @@ export async function extractRealPdfContent(
               break;
             }
           }
+        } else {
+          // If no sidebar, sample top header area (y = 5% of height) to detect header banner brand color
+          const topSampleY = Math.max(2, Math.floor(canvas.height * 0.05));
+          const topRow = ctx.getImageData(0, topSampleY, canvas.width, 1).data;
+          for (let px = Math.floor(canvas.width * 0.1); px < Math.floor(canvas.width * 0.9); px += 6) {
+            const r = topRow[px * 4];
+            const g = topRow[px * 4 + 1];
+            const b = topRow[px * 4 + 2];
+            const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+            const sat = Math.max(r, g, b) - Math.min(r, g, b);
+            if (luma < 230 && luma > 25 && (sat > 25 || luma < 120)) {
+              detectedPrimaryHex = rgbToHex(r, g, b);
+              break;
+            }
+          }
         }
 
         const leftLuminance = 0.299 * leftR + 0.587 * leftG + 0.114 * leftB;
         hasDarkSidebar = hasColoredSidebar && leftLuminance < 140;
+
+        // Smart Accent Color Detection across lines, buttons, badges, and heading elements
+        const colorCounts = new Map<string, number>();
+        const stepY = Math.max(10, Math.floor(canvas.height / 20));
+        const stepX = Math.max(10, Math.floor(canvas.width / 20));
+        for (let y = stepY; y < canvas.height - stepY; y += stepY) {
+          const rowD = ctx.getImageData(0, y, canvas.width, 1).data;
+          for (let x = stepX; x < canvas.width - stepX; x += stepX) {
+            const r = rowD[x * 4];
+            const g = rowD[x * 4 + 1];
+            const b = rowD[x * 4 + 2];
+            const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+            const sat = Math.max(r, g, b) - Math.min(r, g, b);
+            if (sat >= 35 && luma > 30 && luma < 225) {
+              const hex = rgbToHex(r, g, b);
+              if (hex !== detectedPrimaryHex) {
+                colorCounts.set(hex, (colorCounts.get(hex) || 0) + 1);
+              }
+            }
+          }
+        }
+        let maxCount = 0;
+        let bestAccent = '';
+        for (const [hex, count] of colorCounts.entries()) {
+          if (count > maxCount) {
+            maxCount = count;
+            bestAccent = hex;
+          }
+        }
+        if (bestAccent) {
+          detectedAccentHex = bestAccent;
+        } else if (hasColoredSidebar) {
+          detectedAccentHex = 'C86D3B';
+        }
       } catch {
         // continue safely
       }
@@ -535,7 +588,8 @@ export async function extractRealPdfContent(
       isTwoColumn,
       hasDarkSidebar,
       sidebarBgHex: hasColoredSidebar ? sidebarBgHex : 'F8FAFC',
-      accentHex: 'C86D3B',
+      accentHex: detectedAccentHex,
+      primaryHex: detectedPrimaryHex,
       splitRatio,
       extractedPhotoPngBytes,
       extractedPhotoDataUrl,
@@ -553,6 +607,13 @@ export async function extractRealPdfContent(
       rawText: allLines.map((l) => l.fullText).join('\n'),
       pageDataUrl,
     });
+
+    if (canvasInstance) {
+      canvasInstance.width = 1;
+      canvasInstance.height = 1;
+      canvasInstance = null;
+      ctxInstance = null;
+    }
   }
 
   return extractedPages;
@@ -1703,7 +1764,9 @@ export async function generateProfessionalPptxFromPages(
       `);
     } else {
       // ================== 1-COLUMN PROFESSIONAL PRESENTATION SLIDES ==================
-      const linesPerSlide = 12;
+      const pageImagesList = page.images || [];
+      const hasImagesOnPage = pageImagesList.length > 0;
+      const linesPerSlide = hasImagesOnPage ? 8 : 12;
       const chunks: ReconstructedLine[][] = [];
       for (let i = 0; i < page.rightLines.length; i += linesPerSlide) {
         chunks.push(page.rightLines.slice(i, i + linesPerSlide));
@@ -1716,7 +1779,7 @@ export async function generateProfessionalPptxFromPages(
         const slide = pptx.addSlide();
         slide.background = { color: rightBgHex };
 
-        // Top Header Accent Bar
+        // Top Header Accent Bar with original PDF brand color
         slide.addShape(pptx.ShapeType.rect, {
           x: 0,
           y: 0,
@@ -1726,35 +1789,52 @@ export async function generateProfessionalPptxFromPages(
           line: { color: primaryDarkHex, width: 0 },
         });
 
+        // Accent thin strip beneath the top bar
+        slide.addShape(pptx.ShapeType.rect, {
+          x: 0,
+          y: 0.85,
+          w: 13.333,
+          h: 0.05,
+          fill: { color: accentHex },
+          line: { color: accentHex, width: 0 },
+        });
+
         const slideTitle =
           chunk[0]?.fullText || `Page ${page.pageNumber} — Slide ${cIdx + 1}`;
-        slide.addText(slideTitle.slice(0, 85), {
+        const isTitleArabic = /[\u0600-\u06FF]/.test(slideTitle);
+
+        slide.addText(slideTitle.slice(0, 95), {
           x: 0.5,
-          y: 0.18,
+          y: 0.16,
           w: 12.3,
-          h: 0.5,
+          h: 0.52,
           fontSize: 18,
           bold: true,
           color: 'FFFFFF',
           fontFace: 'Calibri',
+          align: isTitleArabic ? 'right' : 'left',
         });
 
+        const associatedImage = hasImagesOnPage && cIdx === 0 ? pageImagesList[0] : null;
+        const textWidth = associatedImage && associatedImage.dataUrl ? 6.8 : 12.1;
         let curY = 1.15;
         let bodyHtml = '';
         const bodyLines = chunk.slice(1);
 
         for (const l of bodyLines) {
           const isHead = l.fontSize >= 13;
+          const isLineArabic = /[\u0600-\u06FF]/.test(l.fullText);
           if (curY < 6.9) {
             slide.addText(l.fullText, {
               x: 0.6,
               y: curY,
-              w: 12.1,
+              w: textWidth,
               h: isHead ? 0.35 : 0.28,
               fontSize: isHead ? 13 : 11,
               bold: isHead,
               color: isHead ? accentHex : rightTextHex,
               fontFace: 'Calibri',
+              align: isLineArabic ? 'right' : 'left',
             });
             curY += isHead ? 0.38 : 0.3;
           }
@@ -1762,17 +1842,52 @@ export async function generateProfessionalPptxFromPages(
             isHead ? accentHex : rightTextHex
           }; font-weight:${isHead ? '700' : '400'}; font-size:${
             isHead ? '12px' : '11px'
-          }; margin:5px 0;">• ${l.fullText}</div>`;
+          }; margin:5px 0; text-align:${isLineArabic ? 'right' : 'left'};" dir="${isLineArabic ? 'rtl' : 'ltr'}">${isHead ? '■ ' : '• '}${l.fullText}</div>`;
+        }
+
+        let imageSlideHtml = '';
+        if (associatedImage && associatedImage.dataUrl) {
+          try {
+            const imgAspect = Math.max(0.3, Math.min(3.0, associatedImage.aspectRatio || 1.33));
+            let imgW = 5.2;
+            let imgH = imgW / imgAspect;
+            if (imgH > 5.6) {
+              imgH = 5.6;
+              imgW = imgH * imgAspect;
+            }
+            const imgX = Number((13.333 - imgW - 0.5).toFixed(2));
+            const imgY = Number((1.15 + (5.6 - imgH) / 2).toFixed(2));
+
+            slide.addImage({
+              data: associatedImage.dataUrl,
+              x: imgX,
+              y: imgY,
+              w: Number(imgW.toFixed(2)),
+              h: Number(imgH.toFixed(2)),
+            });
+
+            imageSlideHtml = `
+              <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:12px; border-left:1px dashed #cbd5e1; background:#f8fafc; border-radius:8px;">
+                <img src="${associatedImage.dataUrl}" style="max-height:220px; max-width:100%; border-radius:6px; box-shadow:0 3px 10px rgba(0,0,0,0.1); margin-bottom:8px;" alt="Slide Image" />
+                <span style="font-size:10px; font-weight:700; color:#${accentHex};">[ صورة / Image: ${Math.round(associatedImage.width)} × ${Math.round(associatedImage.height)} pt ]</span>
+              </div>
+            `;
+          } catch {
+            // continue
+          }
         }
 
         slidePreviewCards.push(`
           <div style="margin-bottom:18px; border:1px solid #cbd5e1; border-radius:12px; overflow:hidden; background:#${rightBgHex}; box-shadow:0 6px 18px rgba(15,23,42,0.08);">
-            <div style="padding:10px 16px; background:#${primaryDarkHex}; color:#ffffff; font-weight:800; font-size:13px; display:flex; justify-content:space-between;">
-              <span>${slideTitle.slice(0, 70)}</span>
-              <span style="font-size:10px; opacity:0.8;">SLIDE ${slideCount}</span>
+            <div style="padding:10px 16px; background:#${primaryDarkHex}; color:#ffffff; font-weight:800; font-size:13px; display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #${accentHex};">
+              <span style="max-width:80%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${slideTitle.slice(0, 80)}</span>
+              <span style="font-size:10.5px; opacity:0.9; background:rgba(255,255,255,0.18); padding:2px 8px; border-radius:4px;">SLIDE ${slideCount}</span>
             </div>
-            <div style="padding:16px 20px; min-height:210px;">
-              ${bodyHtml || '<div style="color:#64748b; font-size:12px;">Visual Page Content</div>'}
+            <div style="padding:16px 20px; min-height:210px; display:flex; gap:16px;">
+              <div style="${associatedImage && associatedImage.dataUrl ? 'flex:1.4;' : 'width:100%;'}">
+                ${bodyHtml || '<div style="color:#64748b; font-size:12px;">Visual Page Content</div>'}
+              </div>
+              ${imageSlideHtml}
             </div>
           </div>
         `);
@@ -2326,19 +2441,95 @@ export async function generateProfessionalExcelFromPages(
     } else {
       // ================== 2. GENERAL MULTI-COLUMN DRAWN EXCEL TABLE ==================
       // Cluster X coordinates across the page to detect columns automatically
+      const isArabicPage = /[\u0600-\u06FF]/.test(page.rawText);
+      if (isArabicPage) {
+        ws.views = [{ showGridLines: true, rightToLeft: true }];
+      }
+
       const allLines = page.lines;
       let maxCols = Math.max(1, ...allLines.map((l) => l.cells.length));
       maxCols = Math.min(8, Math.max(2, maxCols));
 
       for (let c = 1; c <= maxCols; c++) {
-        ws.getColumn(c).width = c === 1 ? 28 : Math.round(75 / Math.max(1, maxCols - 1));
+        ws.getColumn(c).width = c === 1 ? 30 : Math.round(75 / Math.max(1, maxCols - 1));
       }
+
+      // Merge text lines and detected images sorted strictly by original vertical position (topY)
+      type SingleExcelFlowItem =
+        | { type: 'line'; topY: number; line: (typeof page.lines)[0] }
+        | { type: 'image'; topY: number; image: ExtractedPdfImage };
+
+      const flowItems: SingleExcelFlowItem[] = [
+        ...allLines.map((l) => ({ type: 'line' as const, topY: page.height - l.y, line: l })),
+        ...(page.images || []).map((im) => ({ type: 'image' as const, topY: im.topY, image: im })),
+      ].sort((a, b) => a.topY - b.topY);
 
       let curRow = 1;
       let htmlRows = '';
 
-      for (const line of allLines) {
+      for (const item of flowItems) {
         const row = ws.getRow(curRow);
+
+        if (item.type === 'image') {
+          ws.mergeCells(curRow, 1, curRow, maxCols);
+          const cell = ws.getCell(curRow, 1);
+          cell.value = `🖼️ [ صورة / Image: ${Math.round(item.image.width)} × ${Math.round(item.image.height)} pt ]`;
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFF1F5F9' },
+          };
+          cell.font = {
+            name: 'Calibri',
+            size: 10,
+            bold: true,
+            color: { argb: `FF${accentHex}` },
+          };
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+          cell.border = thinBorder;
+          const targetH = Math.min(150, Math.max(50, Math.round(item.image.height * 0.65)));
+          row.height = targetH;
+
+          if (embedPhotos && item.image.dataUrl) {
+            try {
+              const base64Clean = item.image.dataUrl.split(',')[1] || item.image.dataUrl;
+              const imgId = workbook.addImage({
+                base64: base64Clean,
+                extension: 'jpeg',
+              });
+              ws.addImage(imgId, {
+                tl: { col: 0.5, row: curRow - 1 + 0.1 },
+                ext: {
+                  width: Math.min(380, Math.round(item.image.width * 0.85)),
+                  height: Math.min(125, Math.round(item.image.height * 0.65)),
+                },
+              });
+              totalRows++;
+            } catch {
+              // continue safely
+            }
+          }
+
+          htmlRows += `
+            <tr>
+              <td colspan="${maxCols}" style="padding:14px; border:2px dashed #${accentHex}; background:#f8fafc; text-align:center;">
+                ${
+                  item.image.dataUrl
+                    ? `<img src="${item.image.dataUrl}" style="max-height:160px; max-width:85%; border-radius:6px; box-shadow:0 3px 10px rgba(0,0,0,0.1); margin-bottom:8px; display:inline-block;" alt="Image" />`
+                    : ''
+                }
+                <div style="font-size:11px; font-weight:800; color:#${accentHex};">🖼️ [ صورة / Image: ${Math.round(
+            item.image.width
+          )} × ${Math.round(item.image.height)} pt ]</div>
+                <div style="font-size:9.5px; color:#64748b; margin-top:2px;">تم الحفاظ على موضع وترتيب الصورة الأصلية في جدول Excel</div>
+              </td>
+            </tr>
+          `;
+          curRow++;
+          continue;
+        }
+
+        const line = item.line;
         if (line.isHeading || line.cells.length === 1) {
           ws.mergeCells(curRow, 1, curRow, maxCols);
           const cell = ws.getCell(curRow, 1);
@@ -2355,21 +2546,25 @@ export async function generateProfessionalExcelFromPages(
               bold: true,
               color: { argb: 'FFFFFFFF' },
             };
-            row.height = 24;
+            row.height = 25;
           } else {
             cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF1E293B' } };
-            row.height = 19;
+            row.height = 20;
           }
           cell.border = thinBorder;
-          cell.alignment = { vertical: 'middle', wrapText: true };
+          cell.alignment = {
+            vertical: 'middle',
+            horizontal: isArabicPage ? 'right' : 'left',
+            wrapText: true,
+          };
 
           htmlRows += `
             <tr style="background:${line.isHeading ? `#${primaryHex}` : '#ffffff'}; color:${
             line.isHeading ? '#ffffff' : '#1e293b'
           }; font-weight:${line.isHeading ? '700' : '400'};">
-              <td colspan="${maxCols}" style="padding:6px 10px; border:1px solid #cbd5e1;">${
-            line.fullText
-          }</td>
+              <td colspan="${maxCols}" style="padding:6px 10px; border:1px solid #cbd5e1; text-align:${
+            isArabicPage ? 'right' : 'left'
+          };" dir="${isArabicPage ? 'rtl' : 'ltr'}">${line.fullText}</td>
             </tr>
           `;
         } else {
@@ -2385,9 +2580,15 @@ export async function generateProfessionalExcelFromPages(
               color: { argb: 'FF1E293B' },
             };
             c.border = thinBorder;
-            c.alignment = { vertical: 'middle', wrapText: true };
-            tds += `<td style="padding:6px 8px; border:1px solid #cbd5e1; ${
-              cIdx === 0 ? 'font-weight:700; background:#f8fafc;' : ''
+            c.alignment = {
+              vertical: 'middle',
+              horizontal: isArabicPage ? 'right' : 'left',
+              wrapText: true,
+            };
+            tds += `<td style="padding:6px 8px; border:1px solid #cbd5e1; text-align:${
+              isArabicPage ? 'right' : 'left'
+            }; ${cIdx === 0 ? 'font-weight:700; background:#f8fafc;' : ''}" dir="${
+              isArabicPage ? 'rtl' : 'ltr'
             }">${cellVal}</td>`;
           }
           row.height = 20;
@@ -2398,10 +2599,10 @@ export async function generateProfessionalExcelFromPages(
 
       totalRows += curRow - 1;
       sheetPreviewHtmlBlocks.push(`
-        <div style="border:1px solid #94a3b8; border-radius:10px; overflow:hidden; background:#ffffff; margin-bottom:18px; font-family:'Calibri',sans-serif;">
-          <div style="background:#107c41; color:#ffffff; padding:7px 12px; font-size:11px; font-weight:700; display:flex; justify-content:space-between;">
-            <span>SHEET: Page ${page.pageNumber} · DRAWN TABLE (.XLSX)</span>
-            <span>${curRow - 1} Rows</span>
+        <div style="border:1px solid #94a3b8; border-radius:10px; overflow:hidden; background:#ffffff; margin-bottom:18px; font-family:'Calibri',sans-serif; box-shadow:0 3px 10px rgba(15,23,42,0.06);">
+          <div style="background:#${primaryHex}; color:#ffffff; padding:8px 14px; font-size:11px; font-weight:700; display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #${accentHex};">
+            <span>SHEET: Page ${page.pageNumber} · DRAWN EXCEL TABLE (.XLSX)</span>
+            <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:4px; font-family:monospace; font-size:10px;">${curRow - 1} Rows · Native Cells</span>
           </div>
           <div style="overflow-x:auto;">
             <table style="width:100%; border-collapse:collapse; font-size:11px;">
