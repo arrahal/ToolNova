@@ -160,7 +160,7 @@ export const TOOLS_DATA: ToolItem[] = [
     id: 'pdf-to-powerpoint',
     title: 'PDF to PowerPoint',
     description:
-      'Turn your PDF files into easy to edit PPT and PPTX slideshows in seconds.',
+      'Convert PDFs to widescreen 16:9 PowerPoint (.PPTX) presentations preserving exact original colors, layout hierarchy, and framed images.',
     hub: 'pdf',
     hubLabel: 'PDF Hub',
     subcategories: ['pdf', 'powerpoint', 'convert'],
@@ -174,7 +174,7 @@ export const TOOLS_DATA: ToolItem[] = [
     id: 'pdf-to-excel',
     title: 'PDF to Excel',
     description:
-      'Pull tabular data straight from PDFs into structured Excel spreadsheets and CSVs.',
+      'Extract structured tables into native Excel (.XLSX) workbooks preserving original colors, column alignment, and embedded framed images.',
     hub: 'pdf',
     hubLabel: 'PDF Hub',
     subcategories: ['pdf', 'excel', 'convert'],

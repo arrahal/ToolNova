@@ -1106,7 +1106,7 @@ export async function processPdfAction(
       };
     }
 
-    // B) PDF TO EXCEL (.XLSX WITH DRAWN TABLES, ORIGINAL PDF COLORS & EMBEDDED IMAGES)
+    // B) PDF TO EXCEL (.XLSX WITH DRAWN TABLES, COLORED HEADERS & EMBEDDED PHOTOS)
     if (toolId === 'pdf-to-excel') {
       const { xlsxBytes, previewHtml, totalRows } =
         await generateProfessionalExcelFromPages(extractedPages, {
@@ -1122,7 +1122,7 @@ export async function processPdfAction(
         mimeType:
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         pageCount,
-        summary: `✅ تم تحويل PDF إلى Excel (.XLSX) بنجاح مع الحفاظ التام على ألوان المستند الأصلية، الميزون باج، وترتيب الصفحات (${totalRows} صف عبر ${pageCount} ورقة عمل)، وإدراج الصور داخل إطارات مخصصة.`,
+        summary: `✅ تم تحويل PDF إلى Excel بنجاح مع الحفاظ التام على الألوان والترتيب والميزون باج الأصلي (${totalRows} سطر منسق عبر ${pageCount} ورقة عمل مع استخراج وتضمين كافة الصور بإطارات مخصصة).`,
         previewHtml,
       };
     }
@@ -1142,7 +1142,7 @@ export async function processPdfAction(
         mimeType:
           'application/vnd.openxmlformats-officedocument.presentationml.presentation',
         pageCount: slideCount,
-        summary: `✅ تم تحويل PDF إلى PowerPoint (.PPTX) بنجاح مع الحفاظ على الألوان الأصلية، الترتيب والميزون باج (${slideCount} شريحة 16:9)، وإدراج الصور الأصلية وإطاراتها بدقة متناهية.`,
+        summary: `✅ تم تحويل PDF إلى PowerPoint بنجاح مع الحفاظ التام على الألوان الأصلية، الترتيب والميزون باج، وتضمين كافة الصور بإطارات مخصصة (${slideCount} شريحة 16:9 عريضة).`,
         previewHtml,
       };
     }

@@ -29,6 +29,8 @@ import {
 } from 'lucide-react';
 import { AppLanguage } from '../data/translations';
 import { Document, Packer, Paragraph, HeadingLevel, TextRun } from 'docx';
+import { auth, signInWithGoogle } from '../lib/firebase';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
 export type ProtectorTab = 'encrypt' | 'open' | 'dashboard';
 
@@ -701,6 +703,29 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const secureFileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(() => auth.currentUser);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setCurrentUser(u);
+    });
+    return () => unsub();
+  }, []);
+
+  const getAuthHeader = async (): Promise<Record<string, string>> => {
+    if (auth.currentUser) {
+      try {
+        const token = await auth.currentUser.getIdToken();
+        if (token) {
+          return { Authorization: `Bearer ${token}` };
+        }
+      } catch (e) {
+        console.warn('Failed to retrieve Firebase ID token:', e);
+      }
+    }
+    return {};
+  };
+
   useEffect(() => {
     if (isOpen) {
       setActiveTab(initialTab);
@@ -714,14 +739,22 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
     if (isOpen && activeTab === 'dashboard') {
       fetchDashboardFiles();
     }
-  }, [isOpen, activeTab]);
+  }, [isOpen, activeTab, currentUser]);
 
   if (!isOpen) return null;
 
   const fetchDashboardFiles = async () => {
+    if (!auth.currentUser) {
+      setDashboardFiles([]);
+      setIsLoadingDashboard(false);
+      return;
+    }
     setIsLoadingDashboard(true);
     try {
-      const res = await fetch('/api/protector/dashboard');
+      const authHeader = await getAuthHeader();
+      const res = await fetch('/api/protector/dashboard', {
+        headers: { ...authHeader },
+      });
       const data = await res.json();
       if (data.ok && Array.isArray(data.files)) {
         setDashboardFiles(data.files);
@@ -840,6 +873,15 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
       return;
     }
 
+    if (!auth.currentUser) {
+      setEncryptError(
+        isAr
+          ? 'يرجى تسجيل الدخول أولاً لتشفير وحماية المستندات وحفظها في حسابك.'
+          : 'Please sign in to encrypt and protect files.'
+      );
+      return;
+    }
+
     setIsEncrypting(true);
     try {
       const fileBase64 = await fileToBase64(selectedFile);
@@ -853,10 +895,14 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 25000);
+        const authHeader = await getAuthHeader();
 
         const res = await fetch('/api/protector/encrypt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeader,
+          },
           signal: controller.signal,
           body: JSON.stringify({
             fileName: selectedFile.name,
@@ -868,7 +914,6 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
             maxOpens,
             expirationMs: exp.ms,
             expirationLabel: exp.label,
-            ownerId,
             clientOrigin: window.location.origin,
           }),
         });
@@ -1044,9 +1089,10 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
 
   const inspectFileById = async (fileId: string) => {
     try {
+      const authHeader = await getAuthHeader();
       const res = await fetch('/api/protector/inspect', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ fileId }),
       });
       const data = await res.json();
@@ -1114,9 +1160,10 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
 
     setIsOpeningFile(true);
     try {
+      const authHeader = await getAuthHeader();
       const res = await fetch('/api/protector/open', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({
           fileId: secureContainerData.fileId,
           password: openPasswordInput,
@@ -1190,9 +1237,10 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
   // ---------------- DASHBOARD ACTIONS ----------------
   const handleRevokeFile = async (fileId: string) => {
     try {
+      const authHeader = await getAuthHeader();
       await fetch('/api/protector/revoke', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ fileId }),
       });
       fetchDashboardFiles();
@@ -1203,9 +1251,10 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
 
   const handleRecreateFile = async (item: ProtectedFileSummary) => {
     try {
+      const authHeader = await getAuthHeader();
       await fetch('/api/protector/recreate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({
           fileId: item.fileId,
           maxOpens: item.maxOpens,
@@ -1219,8 +1268,10 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
 
   const handleDeleteFile = async (fileId: string) => {
     try {
+      const authHeader = await getAuthHeader();
       await fetch(`/api/protector/${fileId}`, {
         method: 'DELETE',
+        headers: { ...authHeader },
       });
       if (selectedLogsFile?.fileId === fileId) {
         setSelectedLogsFile(null);
@@ -1236,7 +1287,10 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
     format: 'interactive' | 'secure' = 'interactive'
   ) => {
     try {
-      const res = await fetch(`/api/protector/download-secure/${fileId}`);
+      const authHeader = await getAuthHeader();
+      const res = await fetch(`/api/protector/download-secure/${fileId}`, {
+        headers: { ...authHeader },
+      });
       const data = await res.json();
       if (data.ok) {
         if (format === 'interactive' && data.interactiveHtmlBase64) {
@@ -1456,6 +1510,27 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
               {/* STEP 1: DRAG & DROP FILE SELECTION */}
               {encryptStep === 1 && (
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xs transition-all">
+                  {!currentUser && (
+                    <div className="mb-5 flex flex-wrap items-center justify-between gap-3 p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl text-xs text-amber-900 dark:text-amber-200">
+                      <div className="flex items-center gap-2.5">
+                        <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                        <span className="font-bold">
+                          {isAr
+                            ? 'يرجى تسجيل الدخول أولاً لتشفير وحماية ملفاتك وربطها بحسابك والتحكم بمرات فتحها بأمان.'
+                            : 'Please sign in to encrypt and protect files linked to your account.'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => signInWithGoogle()}
+                        className="px-3.5 py-1.5 bg-[#e5322d] hover:bg-[#d12823] text-white rounded-lg font-extrabold text-xs cursor-pointer inline-flex items-center gap-1.5 shrink-0 shadow-2xs"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                        <span>{isAr ? 'تسجيل الدخول باستخدام Google' : 'Sign In with Google'}</span>
+                      </button>
+                    </div>
+                  )}
+
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -2567,7 +2642,33 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
                 </div>
               </div>
 
-              {dashboardFiles.length === 0 ? (
+              {!currentUser ? (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-10 text-center space-y-4">
+                  <div className="w-14 h-14 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-[#e5322d] flex items-center justify-center mx-auto text-2xl font-black">
+                    🔐
+                  </div>
+                  <div className="text-base font-extrabold text-[#111827] dark:text-white">
+                    {isAr
+                      ? 'يرجى تسجيل الدخول للوصول إلى لوحة تحكم ملفاتك'
+                      : 'Please sign in to access your protected files dashboard'}
+                  </div>
+                  <p className="text-xs text-[#64748b] dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+                    {isAr
+                      ? 'لوحة التحكم تعرض حصرياً ملفاتك المشفرة المحمية وإحصائيات الفتح وسجلات الوصول الخاصة بك. سجل الدخول لمتابعتها والتحكم بها.'
+                      : 'The dashboard displays only your protected files and open logs. Sign in to monitor and manage permissions.'}
+                  </p>
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => signInWithGoogle()}
+                      className="px-5 py-2.5 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white text-xs font-extrabold cursor-pointer inline-flex items-center gap-2 shadow-sm"
+                    >
+                      <KeyRound className="w-4 h-4" />
+                      <span>{isAr ? 'تسجيل الدخول باستخدام Google' : 'Sign In with Google'}</span>
+                    </button>
+                  </div>
+                </div>
+              ) : dashboardFiles.length === 0 ? (
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-10 text-center space-y-3">
                   <FolderLock className="w-10 h-10 text-slate-400 mx-auto" />
                   <div className="text-sm font-extrabold text-[#111827] dark:text-white">

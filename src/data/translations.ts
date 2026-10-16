@@ -364,29 +364,29 @@ const TOOL_TEXT_TRANSLATIONS: Record<
   'pdf-to-powerpoint': {
     ar: {
       title: 'PDF إلى PowerPoint',
-      description: 'حوّل ملفات PDF إلى عروض تقديمية احترافية (.PPTX) بشرائح قابلة للتعديل.',
+      description: 'حوّل ملفات PDF إلى عروض PowerPoint (.PPTX) احترافية مع الحفاظ التام على الألوان، الترتيب، الميزون باج، ووضع الصور في إطارات منسقة.',
     },
     fr: {
       title: 'PDF en PowerPoint',
-      description: 'Transformez vos fichiers PDF en présentations PowerPoint (.PPTX) 16:9 éditables.',
+      description: 'Transformez vos fichiers PDF en présentations PowerPoint (.PPTX) 16:9 avec préservation fidèle des couleurs, de la mise en page et images encadrées.',
     },
     es: {
       title: 'PDF a PowerPoint',
-      description: 'Convierte tus archivos PDF en presentaciones PowerPoint (.PPTX) 16:9 editables.',
+      description: 'Convierte tus archivos PDF en presentaciones PowerPoint (.PPTX) 16:9 con colores originales, orden, diseño e imágenes enmarcadas.',
     },
   },
   'pdf-to-excel': {
     ar: {
       title: 'PDF إلى Excel',
-      description: 'استخرج البيانات وارسم جداول Excel (.XLSX) منسقة وملونة تلقائياً من ملفات PDF.',
+      description: 'حوّل جداول وبيانات PDF إلى شيتات Excel (.XLSX) احترافية مع الحفاظ التام على نفس الألوان، الترتيب، الميزون باج الأصلي، وتضمين كافة الصور بإطارات منسقة.',
     },
     fr: {
       title: 'PDF en Excel',
-      description: 'Extrayez les données et tracez automatiquement des tableaux Excel (.XLSX) structurés.',
+      description: 'Extrayez les données et tracez des tableaux Excel (.XLSX) avec préservation exacte des couleurs, mise en page et intégration d\'images encadrées.',
     },
     es: {
       title: 'PDF a Excel',
-      description: 'Extrae datos y dibuja tablas Excel (.XLSX) estructuradas directamente desde tu PDF.',
+      description: 'Extrae datos y genera hojas Excel (.XLSX) estructuradas conservando colores originales, diseño de página e imágenes enmarcadas.',
     },
   },
   'word-to-pdf': {

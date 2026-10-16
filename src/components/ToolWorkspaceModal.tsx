@@ -32,8 +32,6 @@ import {
   Zap,
   TrendingDown,
   Gauge,
-  Presentation,
-  Table,
 } from 'lucide-react';
 import { ToolItem } from '../data/toolsData';
 import { ToolBrandIcon } from './ToolBrandIcon';
@@ -89,6 +87,7 @@ interface ToolWorkspaceModalProps {
   tool: ToolItem | null;
   onClose: () => void;
   onRecordHistory?: (toolTitle: string, detail: string) => void;
+  language?: string;
 }
 
 interface QueuedPdfFile {
@@ -102,6 +101,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   tool,
   onClose,
   onRecordHistory,
+  language,
 }) => {
   // ---------------- PDF STATE ----------------
   const [pdfFiles, setPdfFiles] = useState<QueuedPdfFile[]>([]);
@@ -3097,37 +3097,30 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
 
                   {tool.id === 'pdf-to-powerpoint' && (
                     <div className="space-y-4">
-                      <div className="p-3 rounded-xl bg-orange-50/70 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900/40 text-xs space-y-1">
-                        <div className="font-bold text-orange-900 dark:text-orange-200 flex items-center gap-1.5">
-                          <Presentation className="w-4 h-4 text-orange-600" />
-                          <span>تحويل احترافي فائق الدقة إلى PowerPoint (.PPTX 16:9)</span>
-                        </div>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                          يتم استخراج الألوان الأصلية للمستند بدقة (الأشرطة، العناوين، والخطوط)، والحفاظ على الميزون باج وترتيب الصفحات الأصلي، وإدراج جميع الصور المكتشفة داخل الشرائح كصور حقيقية.
-                        </p>
-                      </div>
-
                       <div>
-                        <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-2">
-                          طريقة تحويل شرائح PowerPoint (.PPTX Mode)
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                          وضع تحويل شرائح PowerPoint (.PPTX) / Presentation Mode
                         </label>
                         <div className="grid grid-cols-1 gap-2">
                           {(
                             [
                               {
                                 id: 'hybrid-with-snapshot',
-                                title: 'شرائح قابلة للتعديل + حفظ الميزون باج والصور (موصى به ⭐)',
-                                desc: 'ينشئ شرائح 16:9 بنصوص وصور أصلية قابلة للتحرير، مع الحفاظ على الترتيب وألوان المستند الأصلية.',
+                                title: 'شرائح ذكية قابلة للتعديل + شريحة بصرية مطابقة 100% (موصى به)',
+                                subtitle: 'Editable Smart Slides + 100% Visual Exact Slide (Recommended)',
+                                desc: 'يحافظ على نفس الألوان والترتيب والميزون باج الأصلي، ويضع كافة الصور داخل إطارات أنيقة تحمل اسم [صورة / Image] مع توفير شريحة بصرية مطابقة 100%.',
                               },
                               {
                                 id: 'editable-smart',
-                                title: 'شرائح نصوص وأشكال ذكية قابلة للتعديل فقط',
-                                desc: 'إعادة بناء الأعمدة والألوان والعناوين والنقاط كأشكال ومربعات نصوص PowerPoint أصلية.',
+                                title: 'شرائح عريضة 16:9 ذكية مع ميزون باج كامل',
+                                subtitle: 'Smart 16:9 Slides with Layout & Framed Images',
+                                desc: 'إعادة بناء الأعمدة والعناوين والنقاط والشعارات إلى عناصر PowerPoint نقية قابلة للتعديل مع إطارات للصور ومطابقة هوية المستند.',
                               },
                               {
                                 id: 'visual-exact',
-                                title: 'شرائح بصرية عريضة مطابقة 100% للأصل',
-                                desc: 'وضع كل صفحة بدقة فائقة كشريحة عرض عريضة مع الحفاظ التام على الرسومات والخطوط 100%.',
+                                title: 'شرائح بصرية فائقة الدقة 100%',
+                                subtitle: '100% High-Resolution Visual Slides Only',
+                                desc: 'وضع كل صفحة كشريحة عرض عريضة فائقة النقاء تحتفظ بالرسومات والخطوط والتصميم الأصلي 100%.',
                               },
                             ] as const
                           ).map((modeOpt) => (
@@ -3135,17 +3128,18 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                               key={modeOpt.id}
                               type="button"
                               onClick={() => setPptxMode(modeOpt.id)}
-                              className={`text-right p-2.5 rounded-xl border transition-colors cursor-pointer ${
+                              className={`text-left p-2.5 rounded-xl border transition-colors cursor-pointer ${
                                 pptxMode === modeOpt.id
-                                  ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
+                                  ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900'
                                   : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
                               }`}
                             >
                               <div className="text-xs font-bold">{modeOpt.title}</div>
+                              <div className="text-[10px] opacity-75 font-mono">{modeOpt.subtitle}</div>
                               <div
-                                className={`text-[11px] mt-0.5 ${
+                                className={`text-[11px] mt-1 ${
                                   pptxMode === modeOpt.id
-                                    ? 'text-orange-100'
+                                    ? 'text-slate-300 dark:text-slate-600'
                                     : 'text-slate-500 dark:text-slate-400'
                                 }`}
                               >
@@ -3158,64 +3152,69 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
 
                       {pptxMode !== 'visual-exact' && (
                         <div>
-                          <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-2">
-                            سمة ألوان العرض التقديمي (Color Theme)
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                            هوية ألوان العرض التقديمي / Slide Deck Color Palette
                           </label>
                           <div className="grid grid-cols-3 gap-2">
                             {(
                               [
-                                { id: 'original-brand', label: 'ألوان PDF الأصلية ⭐' },
-                                { id: 'executive-dark', label: 'داكن فاخر (Dark)' },
-                                { id: 'clean-light', label: 'أبيض كلاسيكي (Light)' },
+                                { id: 'original-brand', label: 'ألوان PDF الأصلية', sub: 'Original PDF' },
+                                { id: 'executive-dark', label: 'داكن فاخر', sub: 'Executive Dark' },
+                                { id: 'clean-light', label: 'ناصع فاتح', sub: 'Clean Light' },
                               ] as const
                             ).map((th) => (
                               <button
                                 key={th.id}
                                 type="button"
                                 onClick={() => setPptxTheme(th.id)}
-                                className={`py-2 px-2 rounded-lg text-xs font-bold border transition-colors cursor-pointer text-center ${
+                                className={`py-2 px-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer text-center ${
                                   pptxTheme === th.id
-                                    ? 'bg-orange-600 text-white border-orange-600'
-                                    : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                                    ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                                    : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50'
                                 }`}
                               >
-                                {th.label}
+                                <div>{th.label}</div>
+                                <div className="text-[9.5px] opacity-80">{th.sub}</div>
                               </button>
                             ))}
                           </div>
                         </div>
                       )}
+
+                      {/* Professional Guarantee Badges */}
+                      <div className="p-2.5 rounded-xl bg-rose-50/80 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 space-y-1 text-[11px] text-rose-900 dark:text-rose-200">
+                        <div className="flex items-center gap-1.5 font-bold">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                          <span>الحفاظ التام على ألوان المستند، الترتيب والميزون باج الأصلي</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-rose-800 dark:text-rose-300">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                          <span>وضع الصور والشعارات داخل إطارات مخصصة تحمل علامة [صورة / Image]</span>
+                        </div>
+                      </div>
                     </div>
                   )}
 
                   {tool.id === 'pdf-to-excel' && (
                     <div className="space-y-4">
-                      <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-xs space-y-1">
-                        <div className="font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
-                          <Table className="w-4 h-4 text-emerald-600" />
-                          <span>تحويل فائق الدقة إلى جداول Excel (.XLSX)</span>
-                        </div>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                          يحافظ على ترتيب الصفحات الأصلي والميزون باج، والألوان الحقيقية للترويسات، ويقوم بإدراج أي صورة أو رسم بياني داخل ورقة العمل وإطار مخصص.
-                        </p>
-                      </div>
-
                       <div>
-                        <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-2">
-                          طريقة رسم وبناء جداول Excel (.XLSX)
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                          وضع رسم جداول Excel (.XLSX) / Table Drawing Mode
                         </label>
                         <div className="grid grid-cols-1 gap-2">
                           {(
                             [
                               {
                                 id: 'auto-smart',
-                                title: 'تخطيط ذكي + جداول رسم أصلية (موصى به ⭐)',
-                                desc: 'يرسم الجداول بألوان المستند الأصلية، ويحافظ على الأعمدة الجانبية والجداول المنظمة والصور.',
+                                title: 'تنسيق ذكي للجداول والميزون باج الأصلي (موصى به)',
+                                subtitle: 'Smart Layout + Drawn Tables (Recommended)',
+                                desc: 'يكتشف أعمدة الجداول تلقائياً بدون تشتيت الكلمات، مع الحفاظ التام على نفس الألوان الأصلية، تلوين الرؤوس، وترتيب الأسطر، ووضع الصور في إطارات مخصصة.',
                               },
                               {
                                 id: 'structured-tables',
-                                title: 'شبكة بيانات متعددة الأعمدة (Data Grid)',
-                                desc: 'يجمّع الإحداثيات في أعمدة وصفوف محددة مع حدود مرسومة ودعم المحاذاة من اليمين لليسار (RTL).',
+                                title: 'شبكة أعمدة بيانات متناسقة (Data Grid)',
+                                subtitle: 'Pure Multi-Column Clustered Grid',
+                                desc: 'تجميع إحداثيات X/Y إلى أعمدة مالية منظمة مع محاذاة تلقائية للأرقام والتواريخ وتوافق RTL للغة العربية.',
                               },
                             ] as const
                           ).map((opt) => (
@@ -3223,15 +3222,16 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                               key={opt.id}
                               type="button"
                               onClick={() => setExcelMode(opt.id)}
-                              className={`text-right p-2.5 rounded-xl border transition-colors cursor-pointer ${
+                              className={`text-left p-2.5 rounded-xl border transition-colors cursor-pointer ${
                                 excelMode === opt.id
-                                  ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
+                                  ? 'bg-emerald-700 text-white border-emerald-700'
                                   : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
                               }`}
                             >
                               <div className="text-xs font-bold">{opt.title}</div>
+                              <div className="text-[10px] opacity-75 font-mono">{opt.subtitle}</div>
                               <div
-                                className={`text-[11px] mt-0.5 ${
+                                className={`text-[11px] mt-1 ${
                                   excelMode === opt.id
                                     ? 'text-emerald-100'
                                     : 'text-slate-500 dark:text-slate-400'
@@ -3244,25 +3244,41 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                         </div>
                       </div>
 
-                      <div className="space-y-2 pt-1 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
-                        <label className="flex items-center gap-2 text-xs text-slate-800 dark:text-slate-200 cursor-pointer font-medium">
+                      <div className="space-y-2 pt-1">
+                        <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={excelDrawBorders}
                             onChange={(e) => setExcelDrawBorders(e.target.checked)}
-                            className="accent-emerald-600 rounded"
+                            className="accent-emerald-600"
                           />
-                          <span>رسم حدود الخلايا وتلوين الترويسات بألوان الملف الأصلي</span>
+                          <span>رسم حدود الخلايا وتلوين الرؤوس بنفس ألوان PDF الأصلية (Cell Borders &amp; Brand Colors)</span>
                         </label>
-                        <label className="flex items-center gap-2 text-xs text-slate-800 dark:text-slate-200 cursor-pointer font-medium">
+                        <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={excelEmbedPhotos}
                             onChange={(e) => setExcelEmbedPhotos(e.target.checked)}
-                            className="accent-emerald-600 rounded"
+                            className="accent-emerald-600"
                           />
-                          <span>إدراج وتأطير جميع الصور والشعارات الأصلية في ورقة العمل [صورة / Image]</span>
+                          <span>تضمين الصور والشعارات داخل إطارات مخصصة [صورة / Image] في الشيت</span>
                         </label>
+                      </div>
+
+                      {/* Professional Guarantee Badges */}
+                      <div className="p-2.5 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 space-y-1 text-[11px] text-emerald-900 dark:text-emerald-200">
+                        <div className="flex items-center gap-1.5 font-bold">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>مطابقة تامة لألوان PDF الأصلية في رؤوس الجداول والتنسيق</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>حفظ الصور في خلايا مدمجة بإطار منسق [🖼️ صورة / Image]</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>محاذاة تلقائية للأرقام والعملات والتواريخ ودعم RTL للعربية</span>
+                        </div>
                       </div>
                     </div>
                   )}

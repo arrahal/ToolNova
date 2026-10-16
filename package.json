@@ -9,6 +9,7 @@
     "start": "node server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
+    "test": "vitest run",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -25,6 +26,7 @@
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "firebase": "^12.19.0",
+    "jose": "^6.2.12",
     "jszip": "^3.10.2",
     "lucide-react": "^0.546.0",
     "mammoth": "^1.13.0",
@@ -47,6 +49,7 @@
     "eslint": "^10.12.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
   }
 }

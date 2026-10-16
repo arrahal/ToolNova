@@ -1140,6 +1140,7 @@ export default function App() {
 
       <ToolWorkspaceModal
         tool={selectedTool}
+        language={language}
         onClose={() => setSelectedTool(null)}
         onRecordHistory={handleRecordHistory}
       />
