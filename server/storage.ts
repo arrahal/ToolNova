@@ -6,6 +6,14 @@ import {
   VAULT_STORE_FILE,
 } from './config';
 
+if (!fs.existsSync(SECURE_STORAGE_DIR)) {
+  try {
+    fs.mkdirSync(SECURE_STORAGE_DIR, { recursive: true, mode: 0o700 });
+  } catch (err) {
+    console.error('Failed to initialize SECURE_STORAGE_DIR:', err);
+  }
+}
+
 export type ProtectedFileStatus = 'active' | 'expired' | 'exhausted' | 'revoked' | 'deleted';
 
 export interface ProtectedFileRecord {
@@ -29,21 +37,26 @@ export interface ProtectedFileRecord {
   cryptoMeta: {
     algorithm: 'AES-256-GCM';
     kdf: 'Argon2id';
+    keyId?: string; // Master Key ID used to wrap the DEK (rotation tracking)
     argonSaltHex: string;
     argonTimeCost: number;
     argonMemCostKiB: number;
     argonParallelism: number;
     fileIvHex: string;
     fileAuthTagHex: string;
-    wrappedDekHex: string;
-    dekIvHex: string;
-    dekAuthTagHex: string;
+    wrappedDekHex?: string; // Optional for crypto-shredding on delete
+    dekIvHex?: string;
+    dekAuthTagHex?: string;
     containerHmacHex: string;
+    // For unrestricted offline files only:
+    isOfflineMode?: boolean;
     webCryptoSaltHex?: string;
-    webCryptoIvHex?: string;
+    webFileIvHex?: string;
+    webViewerIvHex?: string;
     webViewerCiphertextBase64?: string;
     webFileCiphertextBase64?: string;
   };
+  isOfflineMode?: boolean;
   openLogs: {
     attemptId: string;
     openedAt: number;
@@ -117,6 +130,9 @@ export function getEncryptedFilePath(fileId: string): string {
   const safeId = sanitizeFileId(fileId);
   if (!safeId) {
     throw new Error('Invalid file ID');
+  }
+  if (!fs.existsSync(SECURE_STORAGE_DIR)) {
+    fs.mkdirSync(SECURE_STORAGE_DIR, { recursive: true, mode: 0o700 });
   }
   const resolved = path.resolve(SECURE_STORAGE_DIR, `${safeId}.enc`);
   if (!resolved.startsWith(path.resolve(SECURE_STORAGE_DIR))) {

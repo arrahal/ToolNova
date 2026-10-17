@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import path from 'path';
+import { Worker } from 'worker_threads';
 import { argon2id } from '@noble/hashes/argon2.js';
 import mammoth from 'mammoth';
 import ExcelJS from 'exceljs';
@@ -7,21 +9,144 @@ import {
   ARGON_MEM_KIB,
   ARGON_PARALLELISM,
   ARGON_TIME_COST,
+  CURRENT_MASTER_KEY_ID,
+  PROJECT_ROOT,
   SERVER_MASTER_KEY,
 } from './config';
 import { ProtectedFileRecord } from './storage';
+import { sanitizeHtml } from './sanitizeHtml';
+
+// ============================================================================
+// 1. PASSWORD POLICY (MIN 10, MAX 256, COMMON PASSWORD BLACKLIST)
+// ============================================================================
+export const COMMON_WEAK_PASSWORDS = new Set([
+  '1234567890',
+  'password123',
+  'admin12345',
+  'qwertyuiop',
+  'password1234',
+  '12345678901',
+  '123456789012',
+  'welcome1234',
+  'password@123',
+  'Passw0rd123',
+  'ToolNova123',
+  'iloveyou123',
+  'changeme123',
+  'administrator',
+  'secret12345',
+  'supersecret123',
+  'letmein1234',
+  '12345678910',
+  '01234567890',
+  'abc123456789',
+  'password12345',
+  'qwerty12345',
+  'welcome@123',
+]);
+
+export function validatePasswordPolicy(password: unknown): { ok: boolean; error?: string } {
+  if (typeof password !== 'string') {
+    return { ok: false, error: 'كلمة المرور مطلوبة وتجب أن تكون نصاً.' };
+  }
+  if (password.length < 10) {
+    return {
+      ok: false,
+      error: 'يجب أن تتكون كلمة المرور من 10 أحرف أو أرقام على الأقل لضمان حماية الملف.',
+    };
+  }
+  if (password.length > 256) {
+    return {
+      ok: false,
+      error: 'كلمة المرور طويلة جداً (الحد الأقصى المسموح به هو 256 حرفاً).',
+    };
+  }
+
+  const normalized = password.trim().toLowerCase();
+  if (COMMON_WEAK_PASSWORDS.has(normalized)) {
+    return {
+      ok: false,
+      error: 'كلمة المرور المختارة شائعة جداً وسهلة التخمين. يرجى اختيار كلمة مرور أقوى.',
+    };
+  }
+
+  return { ok: true };
+}
+
+// ============================================================================
+// 2. ARGON2ID WORKER POOL / ASYNC WORKER THREAD DERIVATION
+// Offloads m=65536, t=3, p=1 so Node's main event loop is never blocked
+// ============================================================================
+interface WorkerPendingItem {
+  resolve: (value: { passwordVerificationHash: Buffer; userKeyMaterial: Buffer }) => void;
+  reject: (reason: any) => void;
+  timer: NodeJS.Timeout;
+}
+
+const pendingWorkerRequests = new Map<string, WorkerPendingItem>();
+let argonWorker: Worker | null = null;
+
+function getOrCreateArgonWorker(): Worker {
+  if (argonWorker) return argonWorker;
+
+  const workerPath = path.resolve(PROJECT_ROOT, 'server/argonWorker.js');
+  const worker = new Worker(workerPath);
+
+  worker.on('message', (msg: { id: string; success: boolean; resultHex?: string; error?: string }) => {
+    const item = pendingWorkerRequests.get(msg.id);
+    if (!item) return;
+    pendingWorkerRequests.delete(msg.id);
+    clearTimeout(item.timer);
+
+    if (msg.success && msg.resultHex) {
+      const buf = Buffer.from(msg.resultHex, 'hex');
+      item.resolve({
+        passwordVerificationHash: buf.subarray(0, 32),
+        userKeyMaterial: buf.subarray(32, 64),
+      });
+    } else {
+      item.reject(new Error(msg.error || 'Argon2id derivation failed in worker'));
+    }
+  });
+
+  worker.on('error', (err) => {
+    console.error('[ArgonWorker Error]', err);
+    // Reject all pending
+    for (const [id, item] of pendingWorkerRequests.entries()) {
+      clearTimeout(item.timer);
+      item.reject(err);
+    }
+    pendingWorkerRequests.clear();
+    argonWorker = null;
+  });
+
+  worker.on('exit', (code) => {
+    if (code !== 0) {
+      console.warn(`[ArgonWorker exited with code ${code}]`);
+    }
+    argonWorker = null;
+  });
+
+  argonWorker = worker;
+  return worker;
+}
 
 export function deriveArgon2idMaterial(
   password: string,
-  salt: Buffer
+  salt: Buffer,
+  options?: { t?: number; m?: number; p?: number }
 ): {
   passwordVerificationHash: Buffer;
   userKeyMaterial: Buffer;
 } {
+  const t = options?.t ?? ARGON_TIME_COST;
+  const m = options?.m ?? ARGON_MEM_KIB;
+  const p = options?.p ?? ARGON_PARALLELISM;
+
   const out = argon2id(Buffer.from(password, 'utf-8'), salt, {
-    t: ARGON_TIME_COST,
-    m: ARGON_MEM_KIB,
-    p: ARGON_PARALLELISM,
+    t,
+    m,
+    p,
     dkLen: 64,
   });
   const buf = Buffer.from(out);
@@ -31,6 +156,58 @@ export function deriveArgon2idMaterial(
   };
 }
 
+export async function deriveArgon2idMaterialAsync(
+  password: string,
+  salt: Buffer,
+  options?: { t?: number; m?: number; p?: number }
+): Promise<{
+  passwordVerificationHash: Buffer;
+  userKeyMaterial: Buffer;
+}> {
+  const t = options?.t ?? ARGON_TIME_COST;
+  const m = options?.m ?? ARGON_MEM_KIB;
+  const p = options?.p ?? ARGON_PARALLELISM;
+
+  return new Promise((resolve, reject) => {
+    try {
+      const worker = getOrCreateArgonWorker();
+      const id = crypto.randomUUID();
+
+      const timer = setTimeout(() => {
+        if (pendingWorkerRequests.has(id)) {
+          pendingWorkerRequests.delete(id);
+          // Fall back to direct calculation if worker timed out
+          try {
+            resolve(deriveArgon2idMaterial(password, salt, { t, m, p }));
+          } catch (e) {
+            reject(e);
+          }
+        }
+      }, 15000);
+
+      pendingWorkerRequests.set(id, { resolve, reject, timer });
+      worker.postMessage({
+        id,
+        password,
+        saltHex: salt.toString('hex'),
+        t,
+        m,
+        p,
+      });
+    } catch {
+      // In synchronous/unsupported environments, execute directly
+      try {
+        resolve(deriveArgon2idMaterial(password, salt, { t, m, p }));
+      } catch (e) {
+        reject(e);
+      }
+    }
+  });
+}
+
+// ============================================================================
+// 3. ENVELOPE ENCRYPTION & KEY ROTATION HELPERS
+// ============================================================================
 export function computeEnvelopeKek(userKeyMaterial: Buffer, fileId: string): Buffer {
   return crypto
     .createHmac('sha256', SERVER_MASTER_KEY)
@@ -39,8 +216,112 @@ export function computeEnvelopeKek(userKeyMaterial: Buffer, fileId: string): Buf
     .digest();
 }
 
+export function deriveHkdfSubkey(
+  secretKey: Buffer,
+  salt: Buffer,
+  info: string,
+  length = 32
+): Buffer {
+  return Buffer.from(
+    crypto.hkdfSync('sha256', secretKey, salt, Buffer.from(info, 'utf-8'), length)
+  );
+}
+
 // ============================================================================
-// RATE LIMITING & BRUTE-FORCE PROTECTION
+// 4. CONTAINER INTEGRITY HMAC (CONSTANT TIME VERIFICATION)
+// Signs fileId:originalName:extension:maxOpens:expiresAt:fileIvHex:fileAuthTagHex
+// ============================================================================
+export function computeContainerHmacHex(params: {
+  fileId: string;
+  originalName: string;
+  extension: string;
+  maxOpens: number | null;
+  expiresAt: number | null;
+  fileIvHex: string;
+  fileAuthTagHex: string;
+}): string {
+  const payload = [
+    params.fileId,
+    params.originalName,
+    params.extension,
+    params.maxOpens === null ? 'inf' : String(params.maxOpens),
+    params.expiresAt === null ? 'inf' : String(params.expiresAt),
+    params.fileIvHex,
+    params.fileAuthTagHex,
+  ].join(':');
+
+  return crypto.createHmac('sha256', SERVER_MASTER_KEY).update(payload).digest('hex');
+}
+
+export function verifyContainerHmac(providedHmacHex: unknown, expectedHmacHex: string): boolean {
+  if (typeof providedHmacHex !== 'string' || typeof expectedHmacHex !== 'string') {
+    return false;
+  }
+  const cleanProvided = providedHmacHex.trim().toLowerCase();
+  const cleanExpected = expectedHmacHex.trim().toLowerCase();
+  if (cleanProvided.length !== 64 || cleanExpected.length !== 64) {
+    return false;
+  }
+
+  const provBuf = Buffer.from(cleanProvided, 'hex');
+  const expBuf = Buffer.from(cleanExpected, 'hex');
+  if (provBuf.length !== 32 || expBuf.length !== 32) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(provBuf, expBuf);
+}
+
+// ============================================================================
+// 5. TRANSPARENT ARGON2 RE-HASHING (UPGRADES OUTDATED PARAMETERS ON OPEN)
+// ============================================================================
+export function needsArgon2Rehash(record: ProtectedFileRecord): boolean {
+  const meta = record.cryptoMeta;
+  if (!meta) return true;
+  if (meta.argonMemCostKiB < ARGON_MEM_KIB) return true;
+  if (meta.argonTimeCost < ARGON_TIME_COST) return true;
+  if (meta.argonParallelism < ARGON_PARALLELISM) return true;
+  if (meta.keyId && meta.keyId !== CURRENT_MASTER_KEY_ID) return true;
+  return false;
+}
+
+export async function transparentlyRehashRecord(
+  password: string,
+  record: ProtectedFileRecord,
+  unwrappedDek: Buffer
+): Promise<void> {
+  const newSalt = crypto.randomBytes(16);
+  const { passwordVerificationHash, userKeyMaterial } = await deriveArgon2idMaterialAsync(
+    password,
+    newSalt,
+    {
+      m: ARGON_MEM_KIB,
+      t: ARGON_TIME_COST,
+      p: ARGON_PARALLELISM,
+    }
+  );
+
+  const newEnvelopeKek = computeEnvelopeKek(userKeyMaterial, record.fileId);
+  userKeyMaterial.fill(0);
+
+  const newDekIv = crypto.randomBytes(12);
+  const dekCipher = crypto.createCipheriv('aes-256-gcm', newEnvelopeKek, newDekIv);
+  const wrappedDek = Buffer.concat([dekCipher.update(unwrappedDek), dekCipher.final()]);
+  const dekAuthTag = dekCipher.getAuthTag();
+
+  record.passwordHash = passwordVerificationHash.toString('hex');
+  record.cryptoMeta.keyId = CURRENT_MASTER_KEY_ID;
+  record.cryptoMeta.argonSaltHex = newSalt.toString('hex');
+  record.cryptoMeta.argonMemCostKiB = ARGON_MEM_KIB;
+  record.cryptoMeta.argonTimeCost = ARGON_TIME_COST;
+  record.cryptoMeta.argonParallelism = ARGON_PARALLELISM;
+  record.cryptoMeta.wrappedDekHex = wrappedDek.toString('hex');
+  record.cryptoMeta.dekIvHex = newDekIv.toString('hex');
+  record.cryptoMeta.dekAuthTagHex = dekAuthTag.toString('hex');
+}
+
+// ============================================================================
+// 6. RATE LIMITING & BRUTE-FORCE PROTECTION
 // ============================================================================
 interface BruteForceTracker {
   failedAttempts: number;
@@ -107,7 +388,7 @@ export function clearFailedPasswordAttempts(key: string): void {
 }
 
 // ============================================================================
-// IN-MEMORY SECURE VIEWER CONTENT PARSER (NO TEMP FILES ON DISK)
+// 7. IN-MEMORY SECURE VIEWER CONTENT PARSER (NO TEMP FILES ON DISK)
 // Converts decrypted Buffer in memory into a safe interactive representation
 // ============================================================================
 export interface SecureViewerPayload {
@@ -130,20 +411,26 @@ export async function buildSecureViewerPayload(
     try {
       const htmlRes = await mammoth.convertToHtml({ buffer: decryptedBuffer });
       const rawRes = await mammoth.extractRawText({ buffer: decryptedBuffer });
+      const rawHtml =
+        htmlRes.value ||
+        `<p>${(rawRes.value || 'مستند Word فارغ').replace(/\n/g, '</p><p>')}</p>`;
       return {
         viewerType: 'word',
-        htmlContent:
-          htmlRes.value ||
-          `<p>${(rawRes.value || 'مستند Word فارغ').replace(/\n/g, '</p><p>')}</p>`,
+        htmlContent: sanitizeHtml(rawHtml),
         textContent: rawRes.value || '',
       };
     } catch {
       const fallbackText = decryptedBuffer
         .toString('utf-8')
         .replace(/[^\x20-\x7E\u0600-\u06FF\n\r\t]/g, ' ');
+      const safeEscaped = fallbackText
+        .slice(0, 8000)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
       return {
         viewerType: 'word',
-        htmlContent: `<div class="space-y-2"><p>${fallbackText.slice(0, 8000)}</p></div>`,
+        htmlContent: `<div class="space-y-2"><p>${safeEscaped}</p></div>`,
         textContent: fallbackText.slice(0, 8000),
       };
     }
@@ -188,7 +475,9 @@ export async function buildSecureViewerPayload(
     } catch {
       return {
         viewerType: 'excel',
-        sheets: [{ name: 'Sheet1', rows: [['تعذر قراءة خلايا الجدول، لكن تم فك تشفير الملف بنجاح.']] }],
+        sheets: [
+          { name: 'Sheet1', rows: [['تعذر قراءة خلايا الجدول، لكن تم فك تشفير الملف بنجاح.']] },
+        ],
       };
     }
   }

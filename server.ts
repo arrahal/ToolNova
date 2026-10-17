@@ -1,4 +1,5 @@
 import express from 'express';
+import helmet from 'helmet';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { PORT, NODE_ENV, PROJECT_ROOT } from './server/config';
@@ -7,6 +8,36 @@ import { vaultRouter } from './server/vaultRoutes';
 
 export function createExpressApp() {
   const app = express();
+
+  const isProd = process.env.NODE_ENV === 'production';
+  // Helmet with strict CSP in production, relaxed in development to keep Vite dev mode functional
+  if (isProd) {
+    app.use(
+      helmet({
+        contentSecurityPolicy: {
+          directives: {
+            defaultSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            baseUri: ["'none'"],
+            frameAncestors: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+            connectSrc: ["'self'", 'https://*.googleapis.com', 'https://*.firebaseio.com'],
+          },
+        },
+        crossOriginEmbedderPolicy: false,
+      })
+    );
+  } else {
+    // Relaxed in development mode so Vite dev server, HMR, inline scripts and tooling function properly
+    app.use(
+      helmet({
+        contentSecurityPolicy: false,
+        crossOriginEmbedderPolicy: false,
+      })
+    );
+  }
 
   // Security & CORS Headers
   app.use((req, res, next) => {

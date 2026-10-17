@@ -6,7 +6,8 @@ import {
   ARGON_MEM_KIB,
   ARGON_PARALLELISM,
   ARGON_TIME_COST,
-  SERVER_MASTER_KEY,
+  CURRENT_MASTER_KEY_ID,
+  PUBLIC_BASE_URL,
   SUPPORTED_PROTECTED_FORMATS,
 } from './config';
 import {
@@ -24,9 +25,15 @@ import {
   checkBruteForceLock,
   checkRateLimit,
   clearFailedPasswordAttempts,
+  computeContainerHmacHex,
   computeEnvelopeKek,
-  deriveArgon2idMaterial,
+  deriveArgon2idMaterialAsync,
+  deriveHkdfSubkey,
+  needsArgon2Rehash,
   recordFailedPasswordAttempt,
+  transparentlyRehashRecord,
+  validatePasswordPolicy,
+  verifyContainerHmac,
 } from './crypto';
 import {
   requireAuth,
@@ -36,6 +43,41 @@ import {
 import { buildInteractiveProtectedHtmlLauncher } from './launcherTemplate';
 
 export const protectorRouter = Router();
+
+export function buildSecureContainerObject(record: ProtectedFileRecord): Record<string, unknown> {
+  const isOffline = Boolean(record.isOfflineMode);
+  const base: Record<string, unknown> = {
+    magic: 'TOOLNOVA-SECURE-FILE-V2',
+    version: '2.0',
+    fileId: record.fileId,
+    originalName: record.originalName,
+    extension: record.extension,
+    category: record.category,
+    mimeType: record.mimeType,
+    fileSize: record.fileSize,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
+    expirationLabel: record.expirationLabel,
+    maxOpens: record.maxOpens,
+    serverOrigin: PUBLIC_BASE_URL,
+    containerHmacHex: record.cryptoMeta.containerHmacHex,
+    isOfflineMode: isOffline,
+  };
+
+  if (isOffline) {
+    base.encryption = {
+      cipher: 'AES-256-GCM',
+      kdf: 'PBKDF2-SHA256 (600,000 rounds) + HKDF subkeys',
+      webCryptoSaltHex: record.cryptoMeta.webCryptoSaltHex,
+      webFileIvHex: record.cryptoMeta.webFileIvHex,
+      webViewerIvHex: record.cryptoMeta.webViewerIvHex,
+    };
+    base.webFileCiphertextBase64 = record.cryptoMeta.webFileCiphertextBase64;
+    base.webViewerCiphertextBase64 = record.cryptoMeta.webViewerCiphertextBase64;
+  }
+
+  return base;
+}
 
 // ==========================================================================
 // 1. Encrypt & Register a Protected File
@@ -67,7 +109,7 @@ protectorRouter.post(
         maxOpens,
         expirationMs,
         expirationLabel,
-        clientOrigin,
+        isOfflineMode: requestedOfflineMode,
       } = req.body || {};
 
       // Verified UID from Firebase ID token — ignore client-supplied ownerId
@@ -94,10 +136,12 @@ protectorRouter.post(
         };
       }
 
-      if (!password || typeof password !== 'string' || password.length < 4) {
+      // Password policy check: min 10 chars, max 256, reject common weak passwords
+      const passwordCheck = validatePasswordPolicy(password);
+      if (!passwordCheck.ok) {
         res.status(400).json({
           ok: false,
-          error: 'يجب أن تتكون كلمة المرور من 4 أحرف أو أرقام على الأقل.',
+          error: passwordCheck.error,
         });
         return;
       }
@@ -126,17 +170,38 @@ protectorRouter.post(
         return;
       }
 
-      // Generate cryptographically secure IDs and salts
+      const now = Date.now();
+      const parsedMaxOpens =
+        maxOpens === null || maxOpens === 'unlimited' || Number(maxOpens) <= 0
+          ? null
+          : Math.max(1, Math.min(10000, Math.floor(Number(maxOpens))));
+
+      const parsedExpiresAt =
+        expirationMs === null || expirationMs === 'never' || Number(expirationMs) <= 0
+          ? null
+          : now + Math.max(60_000, Number(expirationMs));
+
+      // Offline mode is ONLY allowed for unrestricted files (no maxOpens, no expiration)
+      const isOfflineMode = Boolean(
+        requestedOfflineMode && parsedMaxOpens === null && parsedExpiresAt === null
+      );
+
+      // Generate cryptographically distinct IDs, salts, and IVs (Never reuse IVs)
       const fileId = crypto.randomUUID();
       const argonSalt = crypto.randomBytes(16);
-      const fileIv = crypto.randomBytes(12); // 96-bit IV recommended for AES-256-GCM
+      const fileIv = crypto.randomBytes(12); // 96-bit random IV for AES-256-GCM file
       const dek = crypto.randomBytes(32); // 256-bit Data Encryption Key
-      const dekIv = crypto.randomBytes(12);
+      const dekIv = crypto.randomBytes(12); // 96-bit random IV for wrapping DEK
 
-      // 1) Derive Argon2id password verification hash + user key material
-      const { passwordVerificationHash, userKeyMaterial } = deriveArgon2idMaterial(
+      // 1) Derive Argon2id password verification hash + user key material (runs in worker thread)
+      const { passwordVerificationHash, userKeyMaterial } = await deriveArgon2idMaterialAsync(
         password,
-        argonSalt
+        argonSalt,
+        {
+          m: ARGON_MEM_KIB,
+          t: ARGON_TIME_COST,
+          p: ARGON_PARALLELISM,
+        }
       );
 
       // 2) Wrap per-file DEK using AES-256-GCM with Envelope KEK (Server Master Key + Argon2id user key)
@@ -151,7 +216,7 @@ protectorRouter.post(
       const encryptedFileBuffer = Buffer.concat([fileCipher.update(rawBuffer), fileCipher.final()]);
       const fileAuthTag = fileCipher.getAuthTag();
 
-      // Zero out sensitive keys in memory
+      // Zero out sensitive keys in memory immediately
       dek.fill(0);
       userKeyMaterial.fill(0);
 
@@ -159,27 +224,19 @@ protectorRouter.post(
       const encryptedFilePath = getEncryptedFilePath(fileId);
       fs.writeFileSync(encryptedFilePath, encryptedFileBuffer, { mode: 0o600 });
 
-      const now = Date.now();
-      const parsedMaxOpens =
-        maxOpens === null || maxOpens === 'unlimited' || Number(maxOpens) <= 0
-          ? null
-          : Math.max(1, Math.min(10000, Math.floor(Number(maxOpens))));
-
-      const parsedExpiresAt =
-        expirationMs === null || expirationMs === 'never' || Number(expirationMs) <= 0
-          ? null
-          : now + Math.max(60_000, Number(expirationMs));
-
       const secureFileName = `${cleanName}.secure`;
       const interactiveFileName = `${cleanName}.protected.html`;
 
-      // Compute HMAC integrity signature over metadata
-      const containerHmacHex = crypto
-        .createHmac('sha256', SERVER_MASTER_KEY)
-        .update(
-          `${fileId}:${cleanName}:${ext}:${parsedMaxOpens ?? 'inf'}:${parsedExpiresAt ?? 'inf'}`
-        )
-        .digest('hex');
+      // Compute HMAC integrity signature over metadata (including fileIv and fileAuthTag)
+      const containerHmacHex = computeContainerHmacHex({
+        fileId,
+        originalName: cleanName,
+        extension: ext,
+        maxOpens: parsedMaxOpens,
+        expiresAt: parsedExpiresAt,
+        fileIvHex: fileIv.toString('hex'),
+        fileAuthTagHex: fileAuthTag.toString('hex'),
+      });
 
       const record: ProtectedFileRecord = {
         fileId,
@@ -202,6 +259,7 @@ protectorRouter.post(
         cryptoMeta: {
           algorithm: 'AES-256-GCM',
           kdf: 'Argon2id',
+          keyId: CURRENT_MASTER_KEY_ID,
           argonSaltHex: argonSalt.toString('hex'),
           argonTimeCost: ARGON_TIME_COST,
           argonMemCostKiB: ARGON_MEM_KIB,
@@ -212,36 +270,49 @@ protectorRouter.post(
           dekIvHex: dekIv.toString('hex'),
           dekAuthTagHex: dekAuthTag.toString('hex'),
           containerHmacHex,
+          isOfflineMode,
         },
+        isOfflineMode,
         openLogs: [],
       };
 
-      // Build viewer representation and encrypt with WebCrypto-compatible AES-256-GCM
-      const viewerRepresentation = await buildSecureViewerPayload(rawBuffer, record);
-      const webCryptoSalt = crypto.randomBytes(16);
-      const webCryptoIv = crypto.randomBytes(12);
-      const webCryptoKey = crypto.pbkdf2Sync(password, webCryptoSalt, 100000, 32, 'sha256');
+      // 4) Offline mode: opt-in for unrestricted files ONLY.
+      // Derives distinct subkeys with HKDF and distinct random 12-byte IVs.
+      if (isOfflineMode) {
+        const viewerRepresentation = await buildSecureViewerPayload(rawBuffer, record);
+        const webCryptoSalt = crypto.randomBytes(16);
+        const pbkdf2Key = crypto.pbkdf2Sync(password, webCryptoSalt, 600000, 32, 'sha256');
 
-      const webFileCipher = crypto.createCipheriv('aes-256-gcm', webCryptoKey, webCryptoIv);
-      const webCiphertextWithTag = Buffer.concat([
-        webFileCipher.update(rawBuffer),
-        webFileCipher.final(),
-        webFileCipher.getAuthTag(),
-      ]);
+        const webFileKey = deriveHkdfSubkey(pbkdf2Key, webCryptoSalt, 'toolnova-offline-file', 32);
+        const webViewerKey = deriveHkdfSubkey(pbkdf2Key, webCryptoSalt, 'toolnova-offline-viewer', 32);
+        const webFileIv = crypto.randomBytes(12);
+        const webViewerIv = crypto.randomBytes(12);
 
-      const viewerJsonBuffer = Buffer.from(JSON.stringify(viewerRepresentation), 'utf-8');
-      const webViewerCipher = crypto.createCipheriv('aes-256-gcm', webCryptoKey, webCryptoIv);
-      const webViewerCiphertextWithTag = Buffer.concat([
-        webViewerCipher.update(viewerJsonBuffer),
-        webViewerCipher.final(),
-        webViewerCipher.getAuthTag(),
-      ]);
-      webCryptoKey.fill(0);
+        const webFileCipher = crypto.createCipheriv('aes-256-gcm', webFileKey, webFileIv);
+        const webFileCiphertextWithTag = Buffer.concat([
+          webFileCipher.update(rawBuffer),
+          webFileCipher.final(),
+          webFileCipher.getAuthTag(),
+        ]);
 
-      record.cryptoMeta.webCryptoSaltHex = webCryptoSalt.toString('hex');
-      record.cryptoMeta.webCryptoIvHex = webCryptoIv.toString('hex');
-      record.cryptoMeta.webViewerCiphertextBase64 = webViewerCiphertextWithTag.toString('base64');
-      record.cryptoMeta.webFileCiphertextBase64 = webCiphertextWithTag.toString('base64');
+        const viewerJsonBuffer = Buffer.from(JSON.stringify(viewerRepresentation), 'utf-8');
+        const webViewerCipher = crypto.createCipheriv('aes-256-gcm', webViewerKey, webViewerIv);
+        const webViewerCiphertextWithTag = Buffer.concat([
+          webViewerCipher.update(viewerJsonBuffer),
+          webViewerCipher.final(),
+          webViewerCipher.getAuthTag(),
+        ]);
+
+        pbkdf2Key.fill(0);
+        webFileKey.fill(0);
+        webViewerKey.fill(0);
+
+        record.cryptoMeta.webCryptoSaltHex = webCryptoSalt.toString('hex');
+        record.cryptoMeta.webFileIvHex = webFileIv.toString('hex');
+        record.cryptoMeta.webViewerIvHex = webViewerIv.toString('hex');
+        record.cryptoMeta.webFileCiphertextBase64 = webFileCiphertextWithTag.toString('base64');
+        record.cryptoMeta.webViewerCiphertextBase64 = webViewerCiphertextWithTag.toString('base64');
+      }
 
       await withAtomicProtectorLock(async () => {
         const db = readProtectorDb();
@@ -249,75 +320,44 @@ protectorRouter.post(
         writeProtectorDb(db);
       });
 
-      const hostHeader = req.headers.host || 'localhost:3000';
-      const protoHeader = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
-      const serverOrigin =
-        typeof clientOrigin === 'string' && clientOrigin.startsWith('http')
-          ? clientOrigin
-          : `${protoHeader}://${hostHeader}`;
-
-      // Build downloadable container file
-      const secureContainerObject = {
-        magic: 'TOOLNOVA-SECURE-FILE-V1',
-        version: '1.0',
-        fileId: record.fileId,
-        originalName: record.originalName,
-        extension: record.extension,
-        category: record.category,
-        mimeType: record.mimeType,
-        fileSize: record.fileSize,
-        createdAt: record.createdAt,
-        expiresAt: record.expiresAt,
-        expirationLabel: record.expirationLabel,
-        maxOpens: record.maxOpens,
-        serverOrigin,
-        clientOrigin: typeof clientOrigin === 'string' ? clientOrigin : serverOrigin,
-        encryption: {
-          cipher: 'AES-256-GCM',
-          kdf: 'Argon2id (m=16384, t=2, p=1)',
-          ivHex: record.cryptoMeta.fileIvHex,
-          authTagHex: record.cryptoMeta.fileAuthTagHex,
-          signature: record.cryptoMeta.containerHmacHex,
-          webCryptoSaltHex: record.cryptoMeta.webCryptoSaltHex,
-          webCryptoIvHex: record.cryptoMeta.webCryptoIvHex,
-        },
-        ciphertextBase64: encryptedFileBuffer.toString('base64'),
-        webCiphertextBase64: record.cryptoMeta.webFileCiphertextBase64,
-        webViewerCiphertextBase64: record.cryptoMeta.webViewerCiphertextBase64,
-      };
-
+      const secureContainerObject = buildSecureContainerObject(record);
       const secureFileBase64 = Buffer.from(
         JSON.stringify(secureContainerObject, null, 2),
         'utf-8'
       ).toString('base64');
 
-      const interactiveHtmlContent = buildInteractiveProtectedHtmlLauncher(secureContainerObject);
-      const interactiveHtmlBase64 = Buffer.from(interactiveHtmlContent, 'utf-8').toString('base64');
+      const interactiveProtectedHtml = buildInteractiveProtectedHtmlLauncher(secureContainerObject);
+      const interactiveHtmlBase64 = Buffer.from(interactiveProtectedHtml, 'utf-8').toString('base64');
 
-      // Return public DTO — never secrets or cryptoMeta
-      res.json({
+      // Return public DTO only — NEVER passwordHash, wrappedDek, or internal ciphertexts in JSON
+      res.status(200).json({
         ok: true,
         file: toPublicFileDto(record),
+        secureFileName,
+        interactiveFileName,
         secureFileBase64,
         interactiveHtmlBase64,
-        interactiveFileName,
+        isOfflineMode,
       });
-    } catch (err) {
-      console.error('Encryption error:', err);
-      res.status(500).json({ ok: false, error: 'حدث خطأ أثناء تشفير الملف. يرجى المحاولة مرة أخرى.' });
+    } catch (err: any) {
+      console.error('File Protector Encryption Error:', err);
+      res.status(500).json({
+        ok: false,
+        error: 'حدث خطأ أثناء تشفير الملف. يرجى المحاولة مرة أخرى.',
+      });
     }
   }
 );
 
 // ==========================================================================
-// 2. Inspect a `.secure` file or File ID before entering password
-// (Returns public metadata only via toPublicFileDto)
+// 2. Inspect / Check Protected File Status
+// Open to recipient with optionalAuth; verifies container HMAC in constant-time
 // ==========================================================================
 protectorRouter.post('/inspect', optionalAuth, async (req: Request, res: Response) => {
-  const { fileId } = req.body || {};
+  const { fileId, containerHmacHex } = req.body || {};
   const safeId = sanitizeFileId(fileId);
   if (!safeId) {
-    res.status(400).json({ ok: false, error: 'ملف الحماية (.secure) غير صالح أو تالف.' });
+    res.status(400).json({ ok: false, error: 'معرف الملف غير صالح أو تالف.' });
     return;
   }
 
@@ -328,6 +368,15 @@ protectorRouter.post('/inspect', optionalAuth, async (req: Request, res: Respons
       exists: false,
       status: 'deleted',
       error: 'هذا الملف لم يعد موجوداً أو تم حذفه من قبل المالك.',
+    });
+    return;
+  }
+
+  // Verify container HMAC in constant time if supplied
+  if (containerHmacHex && !verifyContainerHmac(containerHmacHex, record.cryptoMeta.containerHmacHex)) {
+    res.status(400).json({
+      exists: false,
+      error: 'رمز التحقق من سلامة الحاوية غير صالح أو تم التلاعب به (Tampered container).',
     });
     return;
   }
@@ -347,7 +396,7 @@ protectorRouter.post('/inspect', optionalAuth, async (req: Request, res: Respons
 
 // ==========================================================================
 // 3. Atomic Open & Decrypt Protected File into Secure Viewer
-// Returns toPublicFileDto + viewer payload (never secret cryptographic keys)
+// Enforces limits server-side; verifies HMAC; transparently re-hashes Argon2id
 // ==========================================================================
 protectorRouter.post('/open', optionalAuth, async (req: Request, res: Response) => {
   const clientIp = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'local');
@@ -360,7 +409,7 @@ protectorRouter.post('/open', optionalAuth, async (req: Request, res: Response) 
     return;
   }
 
-  const { fileId, password, ciphertextBase64 } = req.body || {};
+  const { fileId, password, containerHmacHex, ciphertextBase64 } = req.body || {};
   const safeId = sanitizeFileId(fileId);
   if (!safeId) {
     res.status(400).json({
@@ -399,6 +448,21 @@ protectorRouter.post('/open', optionalAuth, async (req: Request, res: Response) 
       };
     }
 
+    // Verify container HMAC in constant time if provided
+    if (
+      containerHmacHex &&
+      !verifyContainerHmac(containerHmacHex, record.cryptoMeta.containerHmacHex)
+    ) {
+      return {
+        httpStatus: 400,
+        body: {
+          allowed: false,
+          code: 'TAMPERED_CONTAINER',
+          error: 'رمز التحقق من سلامة الملف غير صالح أو تم التلاعب به (Tampered container).',
+        },
+      };
+    }
+
     if (record.status === 'revoked') {
       return {
         httpStatus: 403,
@@ -427,7 +491,7 @@ protectorRouter.post('/open', optionalAuth, async (req: Request, res: Response) 
       };
     }
 
-    // Check open limit BEFORE password check
+    // Check open limit BEFORE password check to enforce quota strictly
     if (record.maxOpens !== null && record.usedOpens >= record.maxOpens) {
       record.status = 'exhausted';
       record.remainingOpens = 0;
@@ -456,11 +520,16 @@ protectorRouter.post('/open', optionalAuth, async (req: Request, res: Response) 
       };
     }
 
-    // Verify password using Argon2id + timingSafeEqual
+    // Verify password using Argon2id with stored record parameters (async worker thread)
     const argonSalt = Buffer.from(record.cryptoMeta.argonSaltHex, 'hex');
-    const { passwordVerificationHash, userKeyMaterial } = deriveArgon2idMaterial(
+    const { passwordVerificationHash, userKeyMaterial } = await deriveArgon2idMaterialAsync(
       password,
-      argonSalt
+      argonSalt,
+      {
+        t: record.cryptoMeta.argonTimeCost,
+        m: record.cryptoMeta.argonMemCostKiB,
+        p: record.cryptoMeta.argonParallelism,
+      }
     );
     const storedHashBuf = Buffer.from(record.passwordHash, 'hex');
 
@@ -487,6 +556,7 @@ protectorRouter.post('/open', optionalAuth, async (req: Request, res: Response) 
 
     // Decrypt DEK using Envelope KEK
     let decryptedFileBuffer: Buffer;
+    let dek: Buffer;
     try {
       const envelopeKek = computeEnvelopeKek(userKeyMaterial, record.fileId);
       userKeyMaterial.fill(0);
@@ -494,11 +564,11 @@ protectorRouter.post('/open', optionalAuth, async (req: Request, res: Response) 
       const dekDecipher = crypto.createDecipheriv(
         'aes-256-gcm',
         envelopeKek,
-        Buffer.from(record.cryptoMeta.dekIvHex, 'hex')
+        Buffer.from(record.cryptoMeta.dekIvHex!, 'hex')
       );
-      dekDecipher.setAuthTag(Buffer.from(record.cryptoMeta.dekAuthTagHex, 'hex'));
-      const dek = Buffer.concat([
-        dekDecipher.update(Buffer.from(record.cryptoMeta.wrappedDekHex, 'hex')),
+      dekDecipher.setAuthTag(Buffer.from(record.cryptoMeta.dekAuthTagHex!, 'hex'));
+      dek = Buffer.concat([
+        dekDecipher.update(Buffer.from(record.cryptoMeta.wrappedDekHex!, 'hex')),
         dekDecipher.final(),
       ]);
 
@@ -515,7 +585,7 @@ protectorRouter.post('/open', optionalAuth, async (req: Request, res: Response) 
           body: {
             allowed: false,
             code: 'STORAGE_MISSING',
-            error: 'البيانات المشفرة لهذا الملف غير متوفرة.',
+            error: 'البيانات المشفرة لهذا الملف غير متوفرة على الخادم.',
           },
         };
       }
@@ -531,7 +601,6 @@ protectorRouter.post('/open', optionalAuth, async (req: Request, res: Response) 
         fileDecipher.update(ciphertextBuf),
         fileDecipher.final(),
       ]);
-      dek.fill(0);
     } catch (cryptoErr) {
       console.error('AES-256-GCM Decryption failed:', cryptoErr);
       return {
@@ -543,6 +612,16 @@ protectorRouter.post('/open', optionalAuth, async (req: Request, res: Response) 
         },
       };
     }
+
+    // Transparently re-hash if Argon2id parameters or master key are outdated
+    if (needsArgon2Rehash(record)) {
+      try {
+        await transparentlyRehashRecord(password, record, dek);
+      } catch (rehashErr) {
+        console.warn('Failed to transparently re-hash record parameters:', rehashErr);
+      }
+    }
+    dek.fill(0);
 
     // Atomically consume 1 open slot
     record.usedOpens += 1;
@@ -571,12 +650,14 @@ protectorRouter.post('/open', optionalAuth, async (req: Request, res: Response) 
         httpStatus: 200,
         body: {
           allowed: true,
+          ok: true,
           message:
             record.remainingOpens === 0
               ? 'تم التحقق من كلمة المرور وفتح الملف بنجاح. (تنبيه: تم استهلاك الفتحة الوحيدة/الأخيرة — الفتحات المتبقية الآن: 0)'
               : 'تم التحقق من كلمة المرور وفك تشفير الملف بنجاح داخل العارض الآمن.',
           file: toPublicFileDto(record),
           viewer: viewerPayload,
+          decryptedRawBase64: decryptedFileBuffer.toString('base64'),
         },
       };
     } finally {
@@ -633,47 +714,12 @@ protectorRouter.get(
 
     const db = readProtectorDb();
     const record = db[safeId];
-    // Return 404 if record doesn't exist OR belongs to another user
     if (!record || record.status === 'deleted' || record.ownerId !== callerUid) {
       res.status(404).json({ ok: false, error: 'الملف غير موجود.' });
       return;
     }
 
-    const encPath = getEncryptedFilePath(record.fileId);
-    const encryptedBytes = fs.existsSync(encPath) ? fs.readFileSync(encPath) : Buffer.alloc(0);
-
-    const hostHeader = req.headers.host || 'localhost:3000';
-    const protoHeader = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
-    const serverOrigin = `${protoHeader}://${hostHeader}`;
-
-    const secureContainerObject = {
-      magic: 'TOOLNOVA-SECURE-FILE-V1',
-      version: '1.0',
-      fileId: record.fileId,
-      originalName: record.originalName,
-      extension: record.extension,
-      category: record.category,
-      mimeType: record.mimeType,
-      fileSize: record.fileSize,
-      createdAt: record.createdAt,
-      expiresAt: record.expiresAt,
-      expirationLabel: record.expirationLabel,
-      maxOpens: record.maxOpens,
-      serverOrigin,
-      encryption: {
-        cipher: 'AES-256-GCM',
-        kdf: 'Argon2id (m=16384, t=2, p=1)',
-        ivHex: record.cryptoMeta.fileIvHex,
-        authTagHex: record.cryptoMeta.fileAuthTagHex,
-        signature: record.cryptoMeta.containerHmacHex,
-        webCryptoSaltHex: record.cryptoMeta.webCryptoSaltHex,
-        webCryptoIvHex: record.cryptoMeta.webCryptoIvHex,
-      },
-      ciphertextBase64: encryptedBytes.toString('base64'),
-      webCiphertextBase64: record.cryptoMeta.webFileCiphertextBase64,
-      webViewerCiphertextBase64: record.cryptoMeta.webViewerCiphertextBase64,
-    };
-
+    const secureContainerObject = buildSecureContainerObject(record);
     const interactiveFileName = `${record.originalName}.protected.html`;
     const interactiveHtmlContent = buildInteractiveProtectedHtmlLauncher(secureContainerObject);
 
@@ -702,47 +748,12 @@ protectorRouter.get('/download/:fileId', requireAuth, (req: Request, res: Respon
 
   const db = readProtectorDb();
   const record = db[safeId];
-  // Return 404 if record doesn't exist OR belongs to another user
   if (!record || record.status === 'deleted' || record.ownerId !== callerUid) {
     res.status(404).send('File not found');
     return;
   }
 
-  const hostHeader = req.headers.host || 'localhost:3000';
-  const protoHeader = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
-  const serverOrigin = `${protoHeader}://${hostHeader}`;
-
-  const encPath = getEncryptedFilePath(record.fileId);
-  const encryptedBytes = fs.existsSync(encPath) ? fs.readFileSync(encPath) : Buffer.alloc(0);
-
-  const secureContainerObject = {
-    magic: 'TOOLNOVA-SECURE-FILE-V1',
-    version: '1.0',
-    fileId: record.fileId,
-    originalName: record.originalName,
-    extension: record.extension,
-    category: record.category,
-    mimeType: record.mimeType,
-    fileSize: record.fileSize,
-    createdAt: record.createdAt,
-    expiresAt: record.expiresAt,
-    expirationLabel: record.expirationLabel,
-    maxOpens: record.maxOpens,
-    serverOrigin,
-    encryption: {
-      cipher: 'AES-256-GCM',
-      kdf: 'Argon2id (m=16384, t=2, p=1)',
-      ivHex: record.cryptoMeta.fileIvHex,
-      authTagHex: record.cryptoMeta.fileAuthTagHex,
-      signature: record.cryptoMeta.containerHmacHex,
-      webCryptoSaltHex: record.cryptoMeta.webCryptoSaltHex,
-      webCryptoIvHex: record.cryptoMeta.webCryptoIvHex,
-    },
-    ciphertextBase64: encryptedBytes.toString('base64'),
-    webCiphertextBase64: record.cryptoMeta.webFileCiphertextBase64,
-    webViewerCiphertextBase64: record.cryptoMeta.webViewerCiphertextBase64,
-  };
-
+  const secureContainerObject = buildSecureContainerObject(record);
   const format = req.query.format === 'secure' ? 'secure' : 'interactive';
   if (format === 'secure') {
     res.setHeader('Content-Type', 'application/json');
@@ -852,6 +863,17 @@ protectorRouter.post(
         record.expirationLabel = String(expirationLabel);
       }
 
+      // Recompute container HMAC with updated metadata
+      record.cryptoMeta.containerHmacHex = computeContainerHmacHex({
+        fileId: record.fileId,
+        originalName: record.originalName,
+        extension: record.extension,
+        maxOpens: record.maxOpens,
+        expiresAt: record.expiresAt,
+        fileIvHex: record.cryptoMeta.fileIvHex,
+        fileAuthTagHex: record.cryptoMeta.fileAuthTagHex,
+      });
+
       db[safeId] = record;
       writeProtectorDb(db);
       return record;
@@ -862,14 +884,13 @@ protectorRouter.post(
       return;
     }
 
-    // Return toPublicFileDto — NEVER raw record with passwordHash or ciphertexts
     res.json({ ok: true, file: toPublicFileDto(result) });
   }
 );
 
 // ==========================================================================
-// 8. Dashboard: Permanently Delete a protected file
-// Requires Authentication + Verified Email + Ownership Check (404 if not owner)
+// 8. Dashboard: Permanently Delete a protected file (Crypto-Shredding)
+// Unlinks encrypted file on disk and removes wrapped DEK from record
 // ==========================================================================
 protectorRouter.delete(
   '/:fileId',
@@ -889,6 +910,30 @@ protectorRouter.delete(
       if (!record || record.status === 'deleted' || record.ownerId !== callerUid) {
         return false;
       }
+
+      // 1. Unlink encrypted binary from filesystem (crypto-shredding)
+      try {
+        const encPath = getEncryptedFilePath(safeId);
+        if (fs.existsSync(encPath)) {
+          fs.unlinkSync(encPath);
+        }
+      } catch (fsErr) {
+        console.error('Secure file unlink error:', fsErr);
+      }
+
+      // 2. Erase cryptographic keys from database record
+      delete (record.cryptoMeta as any).wrappedDekHex;
+      delete (record.cryptoMeta as any).dekIvHex;
+      delete (record.cryptoMeta as any).dekAuthTagHex;
+      delete (record.cryptoMeta as any).fileIvHex;
+      delete (record.cryptoMeta as any).fileAuthTagHex;
+      delete (record.cryptoMeta as any).webFileCiphertextBase64;
+      delete (record.cryptoMeta as any).webViewerCiphertextBase64;
+
+      record.status = 'deleted';
+      record.remainingOpens = 0;
+
+      // Clean removal from database
       delete db[safeId];
       writeProtectorDb(db);
       return true;
@@ -899,19 +944,6 @@ protectorRouter.delete(
       return;
     }
 
-    try {
-      const encPath = getEncryptedFilePath(safeId);
-      if (fs.existsSync(encPath)) {
-        const stat = fs.statSync(encPath);
-        if (stat.size > 0 && stat.size < 60 * 1024 * 1024) {
-          fs.writeFileSync(encPath, Buffer.alloc(stat.size, 0));
-        }
-        fs.unlinkSync(encPath);
-      }
-    } catch (fsErr) {
-      console.error('Secure file unlink error:', fsErr);
-    }
-
-    res.json({ ok: true });
+    res.json({ ok: true, message: 'تم حذف الملف وتدمير مفاتيح التشفير بنجاح (Crypto-shredded).' });
   }
 );

@@ -82,6 +82,7 @@ import {
   exportProtectedExcelBytes,
   exportProtectedPowerPointBytes,
 } from '../utils/officeAndTextSuites';
+import { sanitizeHtml } from '../utils/sanitizeHtml';
 
 interface ToolWorkspaceModalProps {
   tool: ToolItem | null;
@@ -1985,7 +1986,7 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                       {pdfResult.previewHtml ? (
                         <div
                           className="p-3 bg-slate-200/70 dark:bg-slate-950 overflow-y-auto max-h-[340px]"
-                          dangerouslySetInnerHTML={{ __html: pdfResult.previewHtml }}
+                          dangerouslySetInnerHTML={{ __html: sanitizeHtml(pdfResult.previewHtml) }}
                         />
                       ) : (
                         <div className="p-4 font-mono text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap overflow-y-auto max-h-[310px] leading-relaxed">

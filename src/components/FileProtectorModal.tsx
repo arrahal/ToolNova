@@ -31,6 +31,7 @@ import { AppLanguage } from '../data/translations';
 import { Document, Packer, Paragraph, HeadingLevel, TextRun } from 'docx';
 import { auth, signInWithGoogle } from '../lib/firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { sanitizeHtml } from '../utils/sanitizeHtml';
 
 export type ProtectorTab = 'encrypt' | 'open' | 'dashboard';
 
@@ -202,6 +203,15 @@ function downloadBase64File(base64: string, fileName: string, mime = 'applicatio
   }
 }
 
+function escapeJsonForScriptTag(obj: unknown): string {
+  return JSON.stringify(obj)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
 function buildClientProtectedHtmlLauncher(container: Record<string, unknown>): string {
   const safeOriginalName = String(container.originalName || 'ملف محمي')
     .replace(/&/g, '&amp;')
@@ -214,15 +224,23 @@ function buildClientProtectedHtmlLauncher(container: Record<string, unknown>): s
       : `${container.maxOpens} مرات`;
 
   const expDisplay = container.expirationLabel ? String(container.expirationLabel) : 'بدون انتهاء';
-  const jsonPayload = JSON.stringify(container);
+  const safeJsonPayload = escapeJsonForScriptTag(container);
+  const nonceBytes = new Uint8Array(16);
+  if (typeof window !== 'undefined' && window.crypto) {
+    window.crypto.getRandomValues(nonceBytes);
+  }
+  const nonce = Array.from(nonceBytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 
   return `<!DOCTYPE html>
-<!--TOOLNOVA_SECURE_CONTAINER_START\${jsonPayload}TOOLNOVA_SECURE_CONTAINER_END-->
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; img-src data: blob:; frame-src blob: data:;" />
   <title>🔐 \${safeOriginalName} - ملف محمي</title>
+  <script type="application/json" id="toolnova-container">\${safeJsonPayload}</script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
     body { background: #0b0f19; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; color: #0f172a; }
@@ -313,8 +331,14 @@ function buildClientProtectedHtmlLauncher(container: Record<string, unknown>): s
     <div id="viewerBody" class="viewer-body"></div>
   </div>
 
-  <script>
-    const CONTAINER = \${jsonPayload};
+  <script nonce="${nonce}">
+    let CONTAINER = {};
+    try {
+      const containerEl = document.getElementById('toolnova-container');
+      CONTAINER = JSON.parse(containerEl ? containerEl.textContent || '{}' : '{}');
+    } catch (e) {
+      console.error('Failed to parse container payload', e);
+    }
     const LOCAL_STORAGE_KEY = 'toolnova_opens_' + CONTAINER.fileId;
     let decryptedRawBytes = null;
 
@@ -460,7 +484,7 @@ function buildClientProtectedHtmlLauncher(container: Record<string, unknown>): s
       }
 
       btn.disabled = true;
-      btn.innerHTML = '<span>جاري التحقق من كلمة المرور وفك التشفير (AES-256-GCM)...</span>';
+      btn.textContent = 'جاري التحقق من كلمة المرور وفك التشفير (AES-256-GCM)...';
 
       try {
         await decryptWithWebCrypto(pwd);
@@ -479,7 +503,7 @@ function buildClientProtectedHtmlLauncher(container: Record<string, unknown>): s
         errBox.textContent = '❌ كلمة المرور غير صحيحة! فشل فك تشفير AES-256-GCM.';
         errBox.style.display = 'block';
         btn.disabled = false;
-        btn.innerHTML = '<span>🔓 فتح الملف المحمي</span>';
+        btn.textContent = '🔓 فتح الملف المحمي';
       }
     }
 
@@ -494,7 +518,7 @@ function buildClientProtectedHtmlLauncher(container: Record<string, unknown>): s
         remaining === null ? '∞' : String(remaining);
 
       const body = document.getElementById('viewerBody');
-      body.innerHTML = '';
+      body.textContent = '';
 
       if (CONTAINER.category === 'pdf' && decryptedRawBytes) {
         const iframe = document.createElement('iframe');
@@ -509,7 +533,16 @@ function buildClientProtectedHtmlLauncher(container: Record<string, unknown>): s
         const div = document.createElement('div');
         div.style.padding = '30px';
         div.style.textAlign = 'center';
-        div.innerHTML = '<h3 style="font-size:18px;margin-bottom:12px;">✅ تم فك تشفير المستند بنجاح</h3><p style="color:#64748b;margin-bottom:20px;">يمكنك تنزيل الملف الأصلي المفكوك تشفيره بالكامل عبر الزر الأخضر أعلاه.</p>';
+        const h3 = document.createElement('h3');
+        h3.style.fontSize = '18px';
+        h3.style.marginBottom = '12px';
+        h3.textContent = '✅ تم فك تشفير المستند بنجاح';
+        const p = document.createElement('p');
+        p.style.color = '#64748b';
+        p.style.marginBottom = '20px';
+        p.textContent = 'يمكنك تنزيل الملف الأصلي المفكوك تشفيره بالكامل عبر الزر الأخضر أعلاه.';
+        div.appendChild(h3);
+        div.appendChild(p);
         body.appendChild(div);
       }
     }
@@ -518,111 +551,129 @@ function buildClientProtectedHtmlLauncher(container: Record<string, unknown>): s
 </html>`;
 }
 
-// Client-side WebCrypto encryption fallback (AES-256-GCM + PBKDF2)
-async function encryptFileLocallyWithWebCrypto(
-  file: File,
-  password: string,
-  options: {
-    maxOpens: number | null;
-    expirationMs: number | null;
-    expirationLabel: string;
-    ownerId: string;
+// Built-in list of common weak passwords
+export const COMMON_WEAK_PASSWORDS = new Set([
+  '1234567890',
+  'password123',
+  'admin12345',
+  'qwertyuiop',
+  'password1234',
+  '12345678901',
+  '123456789012',
+  'welcome1234',
+  'password@123',
+  'passw0rd123',
+  'toolnova123',
+  'iloveyou123',
+  'changeme123',
+  'administrator',
+  'secret12345',
+  'supersecret123',
+  'letmein1234',
+  '12345678910',
+  '01234567890',
+  'abc123456789',
+  'password12345',
+  'qwerty12345',
+  'welcome@123',
+]);
+
+export function evaluatePasswordStrength(pwd: string): {
+  score: number; // 0 to 4
+  labelAr: string;
+  labelEn: string;
+  color: string;
+  bg: string;
+  isCommon: boolean;
+  isTooShort: boolean;
+} {
+  if (!pwd) {
+    return {
+      score: 0,
+      labelAr: 'يرجى إدخال كلمة المرور (10 أحرف كحد أدنى)',
+      labelEn: 'Enter a password (min 10 chars)',
+      color: 'text-slate-400',
+      bg: 'bg-slate-200 dark:bg-slate-700',
+      isCommon: false,
+      isTooShort: true,
+    };
   }
-) {
-  const arrayBuffer = await file.arrayBuffer();
-  const fileBytes = new Uint8Array(arrayBuffer);
-  const enc = new TextEncoder();
 
-  const salt = window.crypto.getRandomValues(new Uint8Array(16));
-  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const isTooShort = pwd.length < 10;
+  const isCommon = COMMON_WEAK_PASSWORDS.has(pwd.trim().toLowerCase());
 
-  const keyMaterial = await window.crypto.subtle.importKey(
-    'raw',
-    enc.encode(password),
-    { name: 'PBKDF2' },
-    false,
-    ['deriveKey']
-  );
+  if (isCommon) {
+    return {
+      score: 0,
+      labelAr: 'شائعة جداً وسهلة التخمين ⚠️',
+      labelEn: 'Common & Easy to Guess ⚠️',
+      color: 'text-rose-600 dark:text-rose-400',
+      bg: 'bg-rose-500',
+      isCommon: true,
+      isTooShort,
+    };
+  }
 
-  const aesKey = await window.crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: salt,
-      iterations: 100000,
-      hash: 'SHA-256',
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  );
+  if (isTooShort) {
+    return {
+      score: 1,
+      labelAr: `قصيرة جداً (${pwd.length}/10 أحرف كحد أدنى)`,
+      labelEn: `Too Short (${pwd.length}/10 chars min)`,
+      color: 'text-rose-600 dark:text-rose-400',
+      bg: 'bg-rose-500',
+      isCommon: false,
+      isTooShort: true,
+    };
+  }
 
-  const encryptedBuf = await window.crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: iv, tagLength: 128 },
-    aesKey,
-    fileBytes
-  );
+  let criteriaMet = 0;
+  if (/[a-z]/.test(pwd)) criteriaMet++;
+  if (/[A-Z]/.test(pwd)) criteriaMet++;
+  if (/[0-9]/.test(pwd)) criteriaMet++;
+  if (/[^a-zA-Z0-9]/.test(pwd)) criteriaMet++;
+  if (pwd.length >= 14) criteriaMet++;
 
-  const saltHex = Array.from(salt)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-  const ivHex = Array.from(iv)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-  const encryptedBase64 = arrayBufferToBase64(encryptedBuf);
-
-  const fileId = window.crypto.randomUUID
-    ? window.crypto.randomUUID()
-    : `local-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-  const now = Date.now();
-  const expiresAt = options.expirationMs ? now + options.expirationMs : null;
-
-  const ext = (file.name.substring(file.name.lastIndexOf('.')) || '.bin').toLowerCase();
-  let category: 'word' | 'excel' | 'powerpoint' | 'pdf' | 'zip' | 'other' = 'other';
-  if (ext === '.docx' || ext === '.doc') category = 'word';
-  else if (ext === '.xlsx' || ext === '.xls') category = 'excel';
-  else if (ext === '.pptx' || ext === '.ppt') category = 'powerpoint';
-  else if (ext === '.pdf') category = 'pdf';
-  else if (ext === '.zip') category = 'zip';
-
-  const secureContainerObject = {
-    magic: 'TOOLNOVA-SECURE-FILE-V1',
-    version: '1.0',
-    fileId,
-    originalName: file.name,
-    extension: ext,
-    category,
-    mimeType: file.type || 'application/octet-stream',
-    fileSize: file.size,
-    createdAt: now,
-    expiresAt,
-    expirationLabel: options.expirationLabel,
-    maxOpens: options.maxOpens,
-    serverOrigin: window.location.origin,
-    clientOrigin: window.location.origin,
-    encryption: {
-      cipher: 'AES-256-GCM',
-      kdf: 'PBKDF2-SHA256 (100k rounds)',
-      ivHex,
-      webCryptoSaltHex: saltHex,
-      webCryptoIvHex: ivHex,
-    },
-    webCiphertextBase64: encryptedBase64,
-  };
-
-  const containerJson = JSON.stringify(secureContainerObject, null, 2);
-  const secureFileBase64 = btoa(unescape(encodeURIComponent(containerJson)));
-  const interactiveHtml = buildClientProtectedHtmlLauncher(secureContainerObject);
-  const interactiveHtmlBase64 = btoa(unescape(encodeURIComponent(interactiveHtml)));
-
-  return {
-    fileId,
-    secureContainerObject,
-    secureFileBase64,
-    interactiveHtmlBase64,
-    category,
-    expiresAt,
-  };
+  if (criteriaMet <= 2) {
+    return {
+      score: 2,
+      labelAr: 'ضعيفة',
+      labelEn: 'Weak',
+      color: 'text-amber-600 dark:text-amber-400',
+      bg: 'bg-amber-500',
+      isCommon: false,
+      isTooShort: false,
+    };
+  } else if (criteriaMet <= 3) {
+    return {
+      score: 3,
+      labelAr: 'متوسطة',
+      labelEn: 'Medium',
+      color: 'text-yellow-600 dark:text-yellow-400',
+      bg: 'bg-yellow-500',
+      isCommon: false,
+      isTooShort: false,
+    };
+  } else if (criteriaMet === 4) {
+    return {
+      score: 4,
+      labelAr: 'قوية',
+      labelEn: 'Strong',
+      color: 'text-emerald-600 dark:text-emerald-400',
+      bg: 'bg-emerald-500',
+      isCommon: false,
+      isTooShort: false,
+    };
+  } else {
+    return {
+      score: 4,
+      labelAr: 'قوية جداً 🛡️',
+      labelEn: 'Very Strong 🛡️',
+      color: 'text-emerald-600 dark:text-emerald-400',
+      bg: 'bg-emerald-600',
+      isCommon: false,
+      isTooShort: false,
+    };
+  }
 }
 
 export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
@@ -656,6 +707,7 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
     '1h' | '24h' | '7d' | '30d' | 'never' | 'custom'
   >('24h');
   const [customExpiryHours, setCustomExpiryHours] = useState<number>(48);
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(false);
 
   const [isEncrypting, setIsEncrypting] = useState(false);
   const [encryptError, setEncryptError] = useState<string | null>(null);
@@ -855,11 +907,16 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
     if (!selectedFile) return;
     setEncryptError(null);
 
-    if (!password || password.length < 4) {
+    const strength = evaluatePasswordStrength(password);
+    if (strength.isTooShort || strength.isCommon) {
       setEncryptError(
-        isAr
-          ? 'يرجى إدخال كلمة مرور قوية (4 أحرف أو أرقام على الأقل).'
-          : 'Please enter a password of at least 4 characters.'
+        strength.isCommon
+          ? isAr
+            ? 'كلمة المرور شائعة جداً وسهلة التخمين. يرجى اختيار كلمة مرور أقوى ومميزة.'
+            : 'Common weak password. Please choose a stronger password.'
+          : isAr
+          ? 'يجب أن تتكون كلمة المرور من 10 أحرف أو أرقام على الأقل لضمان حماية التشفير.'
+          : 'Password must be at least 10 characters.'
       );
       return;
     }
@@ -888,145 +945,81 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
       const maxOpens = resolveMaxOpensValue();
       const exp = resolveExpirationInfo();
 
-      let serverSuccess = false;
-      let serverErrorMsg: string | null = null;
+      const effectiveOffline = Boolean(
+        isOfflineMode && openLimitPreset === 'unlimited' && expiryPreset === 'never'
+      );
 
-      // 1. Attempt Server Encryption
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 35000);
+      const authHeader = await getAuthHeader();
+
+      const res = await fetch('/api/protector/encrypt', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeader,
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          fileName: selectedFile.name,
+          mimeType: selectedFile.type,
+          fileSize: selectedFile.size,
+          fileBase64,
+          password,
+          confirmPassword,
+          maxOpens,
+          expirationMs: exp.ms,
+          expirationLabel: exp.label,
+          isOfflineMode: effectiveOffline,
+        }),
+      });
+      clearTimeout(timer);
+
+      let data: any = null;
       try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 25000);
-        const authHeader = await getAuthHeader();
+        const text = await res.text();
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        // Non-JSON response
+      }
 
-        const res = await fetch('/api/protector/encrypt', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...authHeader,
-          },
-          signal: controller.signal,
-          body: JSON.stringify({
-            fileName: selectedFile.name,
-            mimeType: selectedFile.type,
-            fileSize: selectedFile.size,
-            fileBase64,
-            password,
-            confirmPassword,
-            maxOpens,
-            expirationMs: exp.ms,
-            expirationLabel: exp.label,
-            clientOrigin: window.location.origin,
-          }),
+      if (res.ok && data && data.ok) {
+        setEncryptedResult({
+          file: data.file,
+          secureFileBase64: data.secureFileBase64,
+          interactiveHtmlBase64: data.interactiveHtmlBase64,
+          interactiveFileName:
+            data.interactiveFileName || `${data.file.originalName}.protected.html`,
         });
-        clearTimeout(timer);
+        fetchDashboardFiles();
 
-        let data: any = null;
-        try {
-          const text = await res.text();
-          data = text ? JSON.parse(text) : null;
-        } catch {
-          // Response wasn't JSON
-        }
-
-        if (res.ok && data && data.ok) {
-          setEncryptedResult({
-            file: data.file,
-            secureFileBase64: data.secureFileBase64,
-            interactiveHtmlBase64: data.interactiveHtmlBase64,
-            interactiveFileName:
-              data.interactiveFileName || `${data.file.originalName}.protected.html`,
-          });
-          serverSuccess = true;
-          fetchDashboardFiles();
-
-          if (onRecordHistory) {
-            onRecordHistory(
-              isAr ? 'تشفير وحماية ملف (AES-256-GCM)' : 'File Encrypted (AES-256-GCM)',
-              `${data.file.originalName} -> ${data.file.secureFileName} (${
-                data.file.maxOpens === null ? 'Unlimited' : `${data.file.maxOpens} opens`
-              })`
-            );
-          }
-        } else {
-          serverErrorMsg = data?.error;
-          if (!serverErrorMsg && res.status === 413) {
-            serverErrorMsg = isAr
-              ? 'حجم الملف كبير جداً بالنسبة للخادم. تم تحويل التشفير محلياً بنجاح.'
-              : 'File size exceeds server upload limit. Switched to local encryption.';
-          }
-        }
-      } catch (netErr) {
-        console.warn('Server encryption connection issue, activating local AES-256-GCM encryption:', netErr);
-      }
-
-      // 2. Fallback to Local WebCrypto AES-256-GCM if server was unreachable or returned an error
-      if (!serverSuccess) {
-        try {
-          const localResult = await encryptFileLocallyWithWebCrypto(selectedFile, password, {
-            maxOpens,
-            expirationMs: exp.ms,
-            expirationLabel: exp.label,
-            ownerId,
-          });
-
-          const ext = selectedFile.name.substring(selectedFile.name.lastIndexOf('.')).toLowerCase() || '.bin';
-          const localRecord: ProtectedFileSummary = {
-            fileId: localResult.fileId,
-            ownerId,
-            originalName: selectedFile.name,
-            secureFileName: `${selectedFile.name}.secure`,
-            interactiveFileName: `${selectedFile.name}.protected.html`,
-            extension: ext,
-            category: localResult.category,
-            fileSize: selectedFile.size,
-            createdAt: Date.now(),
-            expiresAt: localResult.expiresAt,
-            expirationLabel: exp.label,
-            maxOpens,
-            usedOpens: 0,
-            remainingOpens: maxOpens,
-            status: 'active',
-            lastOpenedAt: null,
-            openLogs: [],
-          };
-
-          setEncryptedResult({
-            file: localRecord,
-            secureFileBase64: localResult.secureFileBase64,
-            interactiveHtmlBase64: localResult.interactiveHtmlBase64,
-            interactiveFileName: `${selectedFile.name}.protected.html`,
-          });
-
-          // Also keep local copy in dashboard state
-          setDashboardFiles((prev) => [localRecord, ...prev.filter((f) => f.fileId !== localRecord.fileId)]);
-
-          if (onRecordHistory) {
-            onRecordHistory(
-              isAr ? 'تشفير وحماية ملف (AES-256-GCM محلي)' : 'File Encrypted (AES-256-GCM Local)',
-              `${selectedFile.name} -> ${selectedFile.name}.protected.html (${
-                maxOpens === null ? 'Unlimited' : `${maxOpens} opens`
-              })`
-            );
-          }
-          serverSuccess = true;
-        } catch (localErr) {
-          console.error('Local encryption failed:', localErr);
-          setEncryptError(
-            serverErrorMsg ||
-              (isAr
-                ? 'حدث خطأ أثناء تشفير الملف. يرجى التأكد من صحة الملف والمحاولة مجدداً.'
-                : 'Error encrypting file. Please verify file and try again.')
+        if (onRecordHistory) {
+          onRecordHistory(
+            isAr ? 'تشفير وحماية ملف (AES-256-GCM)' : 'File Encrypted (AES-256-GCM)',
+            `${data.file.originalName} -> ${data.file.secureFileName} (${
+              data.file.maxOpens === null ? 'Unlimited' : `${data.file.maxOpens} opens`
+            })`
           );
-          return;
         }
+        setEncryptStep(3);
+      } else {
+        setEncryptError(
+          data?.error ||
+            (res.status === 413
+              ? isAr
+                ? 'حجم الملف كبير جداً ويتجاوز سعة خادم التشفير (الحد الأقصى 75 ميجابايت).'
+                : 'File size exceeds server upload limit (max 75MB).'
+              : isAr
+              ? 'فشل تشفير الملف على الخادم. يرجى التحقق والمحاولة مجدداً.'
+              : 'Failed to encrypt file on the server. Please try again.')
+        );
       }
-
-      setEncryptStep(3);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Encrypt request error:', err);
       setEncryptError(
         isAr
-          ? 'حدث خطأ أثناء قراءة الملف أو تشفيره. يرجى المحاولة مرة أخرى.'
-          : 'Error while reading or encrypting the file. Please try again.'
+          ? 'تعذر الاتصال بالخادم لتشفير الملف. يرجى التأكد من اتصالك بالإنترنت.'
+          : 'Could not connect to the server. Please check your internet connection.'
       );
     } finally {
       setIsEncrypting(false);
@@ -1044,17 +1037,27 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
       const text = await file.text();
       let parsed: Record<string, unknown> | null = null;
 
-      // Support both interactive `.protected.html` files and raw `.secure` JSON containers!
+      // Support both new <script type="application/json" id="toolnova-container"> and legacy comments / raw JSON
+      const scriptMatch = text.match(
+        /<script[^>]*id=["']toolnova-container["'][^>]*>([\s\S]*?)<\/script>/i
+      );
       const embeddedMatch = text.match(
         /<!--TOOLNOVA_SECURE_CONTAINER_START([\s\S]*?)TOOLNOVA_SECURE_CONTAINER_END-->/
       );
-      if (embeddedMatch && embeddedMatch[1]) {
+
+      if (scriptMatch && scriptMatch[1]) {
+        parsed = JSON.parse(scriptMatch[1]);
+      } else if (embeddedMatch && embeddedMatch[1]) {
         parsed = JSON.parse(embeddedMatch[1]);
       } else {
         parsed = JSON.parse(text);
       }
 
-      if (!parsed || parsed.magic !== 'TOOLNOVA-SECURE-FILE-V1' || !parsed.fileId) {
+      if (
+        !parsed ||
+        (parsed.magic !== 'TOOLNOVA-SECURE-FILE-V2' && parsed.magic !== 'TOOLNOVA-SECURE-FILE-V1') ||
+        !parsed.fileId
+      ) {
         setOpenErrorMsg(
           isAr
             ? 'هذا الملف ليس ملفاً مشفراً صالحاً بصيغة (.protected.html أو .secure) الخاصة بالنظام.'
@@ -1062,6 +1065,8 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
         );
         return;
       }
+
+      const hmacHex = (parsed.containerHmacHex as string) || (parsed.encryption as any)?.signature;
 
       setSecureContainerData({
         fileId: String(parsed.fileId),
@@ -1074,10 +1079,11 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
         maxOpens: (parsed.maxOpens as number | null) ?? null,
         expirationLabel: String(parsed.expirationLabel || (isAr ? 'غير محدد' : 'N/A')),
         ciphertextBase64: parsed.ciphertextBase64 as string | undefined,
-      });
+        containerHmacHex: hmacHex,
+      } as any);
 
       // Inspect current server status
-      await inspectFileById(String(parsed.fileId));
+      await inspectFileById(String(parsed.fileId), hmacHex);
     } catch {
       setOpenErrorMsg(
         isAr
@@ -1087,13 +1093,13 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
     }
   };
 
-  const inspectFileById = async (fileId: string) => {
+  const inspectFileById = async (fileId: string, containerHmacHex?: string) => {
     try {
       const authHeader = await getAuthHeader();
       const res = await fetch('/api/protector/inspect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
-        body: JSON.stringify({ fileId }),
+        body: JSON.stringify({ fileId, containerHmacHex }),
       });
       const data = await res.json();
       if (!res.ok || !data.exists) {
@@ -1167,6 +1173,7 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
         body: JSON.stringify({
           fileId: secureContainerData.fileId,
           password: openPasswordInput,
+          containerHmacHex: (secureContainerData as any).containerHmacHex,
           ciphertextBase64: secureContainerData.ciphertextBase64,
         }),
       });
@@ -1741,6 +1748,47 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
                           )}
                         </button>
                       </div>
+
+                      {/* Arabic Password Strength Meter */}
+                      {password.length > 0 && (() => {
+                        const strength = evaluatePasswordStrength(password);
+                        return (
+                          <div className="mt-2 space-y-1.5 text-right">
+                            <div className="flex items-center justify-between text-[11px] font-bold">
+                              <span className={strength.color}>
+                                {isAr ? strength.labelAr : strength.labelEn}
+                              </span>
+                              <span className="text-slate-500 font-mono text-[10px]">
+                                {password.length} / 10+
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-4 gap-1.5 h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden p-0.5">
+                              {[1, 2, 3, 4].map((step) => (
+                                <div
+                                  key={step}
+                                  className={`h-full rounded-full transition-all duration-300 ${
+                                    strength.score >= step ? strength.bg : 'bg-transparent'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                            {strength.isTooShort && (
+                              <p className="text-[10px] text-rose-500 font-bold">
+                                {isAr
+                                  ? '⚠️ الحد الأدنى لكلمة المرور هو 10 أحرف لضمان حماية التشفير.'
+                                  : '⚠️ Minimum password length is 10 characters.'}
+                              </p>
+                            )}
+                            {strength.isCommon && (
+                              <p className="text-[10px] text-rose-500 font-bold">
+                                {isAr
+                                  ? '⚠️ كلمة المرور شائعة جداً، يرجى اختيار كلمة مرور غير متوقعة.'
+                                  : '⚠️ Common password detected. Please choose a more secure password.'}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div>
@@ -1872,18 +1920,53 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
                     )}
                   </div>
 
-                  {/* Transparent Security Architecture Note (Requirement #13) */}
+                  {/* Offline Mode Opt-in (Only for Unrestricted Files) */}
+                  {openLimitPreset === 'unlimited' && expiryPreset === 'never' ? (
+                    <div className="p-4 rounded-xl border border-amber-300 dark:border-amber-900/60 bg-amber-50/80 dark:bg-amber-950/20 text-right space-y-2">
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isOfflineMode}
+                          onChange={(e) => setIsOfflineMode(e.target.checked)}
+                          className="mt-1 rounded text-[#e5322d] focus:ring-[#e5322d] w-4 h-4 cursor-pointer"
+                        />
+                        <div>
+                          <span className="text-xs font-extrabold text-amber-900 dark:text-amber-200 block">
+                            {isAr
+                              ? 'نمط غير متصل بالإنترنت (لا يمكن فرض حدود الفتح أو الصلاحية)'
+                              : 'Offline mode (limits NOT enforced)'}
+                          </span>
+                          <p className="text-[11px] text-amber-800/90 dark:text-amber-300/80 mt-1.5 leading-relaxed font-medium">
+                            {isAr
+                              ? '⚠️ تحذير أمني: في النمط غير المتصل، سيتم تضمين الملف المشفر داخل ملف HTML لتتمكن من فتحه بدون إنترنت. لن يتمكن الخادم من فرض عدد مرات الفتح أو انتهاء الصلاحية أو إلغاء الصلاحية فورياً.'
+                              : '⚠️ Security warning: In offline mode, encrypted data is embedded in the HTML. The server cannot enforce open counts, expiration, or immediate revocation.'}
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 text-right flex items-center gap-2.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                        {isAr
+                          ? '🛡️ قيود حماية خادم مشددة: حدود الفتح وانتهاء الصلاحية مفروضة تقنياً ولا يمكن التلاعب بها عبر المتصفح.'
+                          : '🛡️ Enforceable server limits: Open limits and expiration are strictly verified by the server.'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Security Architecture Note */}
                   <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 flex items-start gap-2.5 leading-relaxed">
                     <Info className="w-4 h-4 text-[#e5322d] shrink-0 mt-0.5" />
                     <div>
                       <strong className="text-[#111827] dark:text-white">
                         {isAr
-                          ? 'كيف يعمل نظام "فتح مرة واحدة" بشكل موثوق؟ '
-                          : 'How Atomic One-Time Open Control Works: '}
+                          ? 'كيف تضمن تقنية التشفير الحماية المطلقة؟ '
+                          : 'Cryptographic Security Guarantees: '}
                       </strong>
                       {isAr
-                        ? 'يتم تشفير الملف فعلياً بخوارزمية AES-256-GCM وتجزئة كلمة المرور عبر Argon2id، وتُسجل الحصة في قاعدة بيانات الخادم بقفل ذري (Atomic Lock). يتم فتح وعرض الملف من خلال العارض الآمن (Secure Viewer) المرتبط بالخادم لضمان استحالة تجاوز عدد الفتحات المسموحة حتى لو تم إرسال ملف (.secure) لشخص آخر مع كلمة المرور.'
-                        : 'Files are encrypted with AES-256-GCM and Argon2id, and open quotas are enforced atomically on the server via the Secure Viewer.'}
+                        ? 'يتم تشفير الملف بخوارزمية AES-256-GCM مع مفتاح تشفير عشوائي مستقل ومحمي بمفتاح KEK مشتق عبر Argon2id (64 ميجابايت). للملفات ذات القيود المحددة، لا يتم تضمين نصوص التشفير محلياً بل تُفك حصراً عبر الخادم عند استيفاء الصلاحيات والتحقق من توقيع HMAC.'
+                        : 'Files are encrypted using AES-256-GCM and enveloped with Argon2id (64 MiB). For restricted files, decryptable data is never embedded offline, preventing any bypass.'}
                     </div>
                   </div>
 
@@ -2399,11 +2482,11 @@ export const FileProtectorModal: React.FC<FileProtectorModalProps> = ({
                               : 'Secure Word Document Viewer (.docx) — Protected Read-Only'}
                           </span>
                         </div>
-                        <div
-                          className="prose prose-sm dark:prose-invert max-w-none leading-relaxed text-[#111827] dark:text-slate-100"
-                          dangerouslySetInnerHTML={{
-                            __html: openedViewerData.viewer.htmlContent || '',
-                          }}
+                        <iframe
+                          sandbox=""
+                          srcDoc={`<!DOCTYPE html><html dir="${isAr ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><style>body{font-family:system-ui,-apple-system,sans-serif;line-height:1.7;color:#1e293b;padding:24px;margin:0;background:#ffffff;}table{border-collapse:collapse;width:100%;margin:14px 0;}th,td{border:1px solid #cbd5e1;padding:8px;}p{margin:8px 0;}</style></head><body>${sanitizeHtml(openedViewerData.viewer.htmlContent || '')}</body></html>`}
+                          title="Word Document Viewer"
+                          className="w-full min-h-[480px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white"
                         />
                       </div>
                     )}

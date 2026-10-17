@@ -13,7 +13,12 @@ export const PROJECT_ROOT = process.cwd();
 export const VAULT_STORE_FILE = path.join(PROJECT_ROOT, '.vault_quotas.json');
 export const PROTECTOR_DB_FILE = path.join(PROJECT_ROOT, '.protector_db.json');
 export const SECURE_STORAGE_DIR = path.join(PROJECT_ROOT, '.secure_storage');
-export const MASTER_KEY_FILE = path.join(SECURE_STORAGE_DIR, '.master_key');
+
+// Public base URL used for client links and thin client launcher API calls
+export const PUBLIC_BASE_URL = (
+  process.env.PUBLIC_BASE_URL ||
+  (process.env.PORT ? `http://localhost:${process.env.PORT}` : 'http://localhost:3000')
+).replace(/\/$/, '');
 
 // Load Firebase Project ID from env or firebase-applet-config.json
 function resolveFirebaseProjectId(): string {
@@ -37,24 +42,55 @@ function resolveFirebaseProjectId(): string {
 
 export const FIREBASE_PROJECT_ID = resolveFirebaseProjectId();
 
-// Ensure secure storage directory exists with restricted master key
-function getOrCreateServerMasterKey(): Buffer {
-  if (!fs.existsSync(SECURE_STORAGE_DIR)) {
-    fs.mkdirSync(SECURE_STORAGE_DIR, { recursive: true });
+// Master Key ID for key rotation support (clean identifier)
+export const CURRENT_MASTER_KEY_ID =
+  process.env.SERVER_MASTER_KEY_ID && /^[a-zA-Z0-9_-]{1,32}$/.test(process.env.SERVER_MASTER_KEY_ID.trim())
+    ? process.env.SERVER_MASTER_KEY_ID.trim()
+    : 'k1';
+
+// Server Master Key for envelope encryption (must be 64 hex characters / 256 bits)
+function resolveServerMasterKey(): Buffer {
+  const envKey = process.env.SERVER_MASTER_KEY?.trim();
+  if (envKey) {
+    if (/^[0-9a-fA-F]{64}$/.test(envKey)) {
+      return Buffer.from(envKey, 'hex');
+    }
+    // If provided but not 64 hex characters (e.g. injected token, base64, or passphrase),
+    // derive a cryptographic 256-bit key via SHA-256 so dev/staging environments don't crash
+    console.warn(
+      '[SECURITY NOTICE] SERVER_MASTER_KEY environment variable is not 64 hex characters; deriving 256-bit key via SHA-256.'
+    );
+    return crypto.createHash('sha256').update(`server_master_key:${envKey}`).digest();
   }
-  if (fs.existsSync(MASTER_KEY_FILE)) {
-    const raw = fs.readFileSync(MASTER_KEY_FILE);
-    if (raw.length === 32) return raw;
+
+  if (NODE_ENV === 'production') {
+    throw new Error(
+      'FATAL: SERVER_MASTER_KEY environment variable is missing in production. It must be 64 hex characters (256-bit key).'
+    );
   }
-  const newKey = crypto.randomBytes(32);
-  fs.writeFileSync(MASTER_KEY_FILE, newKey);
-  return newKey;
+
+  // In development/test mode only: persist dev key in a git-ignored file
+  const devKeyFile = path.join(PROJECT_ROOT, '.server_master_key.dev');
+  if (fs.existsSync(devKeyFile)) {
+    const raw = fs.readFileSync(devKeyFile, 'utf-8').trim();
+    if (/^[0-9a-fA-F]{64}$/.test(raw)) {
+      return Buffer.from(raw, 'hex');
+    }
+  }
+
+  const generatedHex = crypto.randomBytes(32).toString('hex');
+  fs.writeFileSync(devKeyFile, generatedHex, { mode: 0o600 });
+  console.warn(
+    '[SECURITY NOTICE] SERVER_MASTER_KEY not set in env; created temporary dev key in .server_master_key.dev'
+  );
+  return Buffer.from(generatedHex, 'hex');
 }
 
-export const SERVER_MASTER_KEY = getOrCreateServerMasterKey();
+export const SERVER_MASTER_KEY = resolveServerMasterKey();
 
-export const ARGON_TIME_COST = 2;
-export const ARGON_MEM_KIB = 16384; // 16 MiB memory-hard
+// Argon2id parameters (m >= 65536 KiB (64 MiB), t >= 3, p = 1)
+export const ARGON_TIME_COST = 3;
+export const ARGON_MEM_KIB = 65536; // 64 MiB memory-hard
 export const ARGON_PARALLELISM = 1;
 
 export interface SupportedFileFormatSpec {
