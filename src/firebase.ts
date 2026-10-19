@@ -138,17 +138,29 @@ export async function fetchUserProfileFromFirestore(
   const pubData = pubSnap.data();
   const privData = privSnap && privSnap.exists() ? privSnap.data() : null;
 
-  const planId =
-    pubData.planId === 'free' || pubData.planId === 'pro' || pubData.planId === 'business'
-      ? pubData.planId
-      : 'pro';
+  // Plan integrity: Authoritative plan is read from /entitlements/{uid}
+  let verifiedPlanId: 'free' | 'pro' | 'business' = 'free';
+  try {
+    const entSnap = await getDoc(doc(db, 'entitlements', cleanUid));
+    if (entSnap && entSnap.exists()) {
+      const entData = entSnap.data();
+      const raw = String(entData?.planId || '').toLowerCase();
+      if (raw === 'enterprise' || raw === 'business') {
+        verifiedPlanId = 'business';
+      } else if (raw === 'pro') {
+        verifiedPlanId = 'pro';
+      }
+    }
+  } catch (err) {
+    // Default to 'free' if no entitlement doc exists
+  }
 
   return {
     uid: cleanUid,
     fullName: String(pubData.fullName || 'Professional User'),
     companyOrRole: String(pubData.companyOrRole || 'Independent Professional'),
     country: String(pubData.country || 'Morocco'),
-    planId,
+    planId: verifiedPlanId,
     joinedAt: String(pubData.joinedAt || new Date().toISOString().slice(0, 10)),
     email: String(privData?.email || auth.currentUser?.email || 'user@example.com'),
     phone: String(privData?.phone || '+212 600-000000'),
@@ -169,10 +181,6 @@ export async function saveUserProfileToFirestore(
   const safeFullName = clampString(profile.fullName, 1, 120, 'ToolNova User');
   const safeCompany = clampString(profile.companyOrRole, 1, 120, 'Independent Professional');
   const safeCountry = clampString(profile.country, 1, 100, 'Morocco');
-  const safePlanId: 'free' | 'pro' | 'business' =
-    profile.planId === 'free' || profile.planId === 'pro' || profile.planId === 'business'
-      ? profile.planId
-      : 'pro';
   const safeJoinedAt = clampString(
     profile.joinedAt,
     4,
@@ -194,14 +202,15 @@ export async function saveUserProfileToFirestore(
     handleFirestoreError(error, OperationType.GET, `users/${cleanUid}`);
   }
 
-  if (!existingPub.exists()) {
+  if (!existingPub || !existingPub.exists()) {
     const batch = writeBatch(db);
+    // Security rules mandate planId MUST be 'free' on initial profile creation
     batch.set(publicRef, {
       uid: cleanUid,
       fullName: safeFullName,
       companyOrRole: safeCompany,
       country: safeCountry,
-      planId: safePlanId,
+      planId: 'free',
       joinedAt: safeJoinedAt,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -220,11 +229,11 @@ export async function saveUserProfileToFirestore(
     }
   } else {
     try {
+      // Security rules forbid clients from altering planId or timestamps directly
       await updateDoc(publicRef, {
         fullName: safeFullName,
         companyOrRole: safeCompany,
         country: safeCountry,
-        planId: safePlanId,
         updatedAt: serverTimestamp(),
       });
     } catch (error) {
@@ -238,7 +247,7 @@ export async function saveUserProfileToFirestore(
       handleFirestoreError(error, OperationType.GET, `users/${cleanUid}/private/info`);
     }
 
-    if (!existingPriv.exists()) {
+    if (!existingPriv || !existingPriv.exists()) {
       try {
         await setDoc(privateRef, {
           uid: cleanUid,
@@ -265,22 +274,16 @@ export async function saveUserProfileToFirestore(
 }
 
 /**
- * Update only the active subscription plan in Firestore
+ * Plan integrity guard: client cannot arbitrarily self-upgrade planId in Firestore.
+ * Subscriptions must be verified via server webhook writing to /entitlements/{uid}.
  */
 export async function updateUserPlanInFirestore(
-  uid: string,
-  planId: 'free' | 'pro' | 'business'
+  _uid: string,
+  _planId: 'free' | 'pro' | 'business'
 ): Promise<void> {
-  const cleanUid = sanitizeId(uid);
-  const publicRef = doc(db, 'users', cleanUid);
-  try {
-    await updateDoc(publicRef, {
-      planId,
-      updatedAt: serverTimestamp(),
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, `users/${cleanUid}`);
-  }
+  console.warn(
+    '[Plan Integrity] Client-side planId mutation blocked. Plans are managed server-side via verified billing webhooks at /entitlements/{uid}.'
+  );
 }
 
 /**
@@ -409,135 +412,4 @@ export function subscribeToUserWorkspace(
 
 export { signInWithPopup, firebaseSignOut };
 
-export interface FirestoreDocumentAccessTokenData {
-  id: string;
-  ownerId: string;
-  fileName: string;
-  docType: 'word' | 'excel' | 'powerpoint';
-  passwordHash: string;
-  maxAllowedUsers: number;
-  usedCount: number;
-  lockEditingMode: 'full-lock' | 'read-only-watermark' | 'form-comments-only';
-}
-
-/**
- * Create or update a DocumentAccessToken record in Firestore (/documentAccessTokens/{tokenId})
- * when a signed-in verified user locks a Word, Excel, or PowerPoint file.
- */
-export async function saveDocumentAccessTokenToFirestore(
-  tokenData: FirestoreDocumentAccessTokenData
-): Promise<boolean> {
-  const user = auth.currentUser;
-  if (!user || !user.emailVerified) return false;
-
-  const cleanUid = sanitizeId(user.uid);
-  const cleanTokenId = sanitizeId(tokenData.id);
-  const tokenRef = doc(db, 'documentAccessTokens', cleanTokenId);
-
-  const safeFileName = clampString(tokenData.fileName, 1, 180, 'Protected_Document.docx');
-  const safeDocType: 'word' | 'excel' | 'powerpoint' =
-    tokenData.docType === 'word' ||
-    tokenData.docType === 'excel' ||
-    tokenData.docType === 'powerpoint'
-      ? tokenData.docType
-      : 'word';
-  const safePassHash = clampString(tokenData.passwordHash, 4, 128, '00000000');
-  const safeMax = Math.max(1, Math.min(500, Math.round(tokenData.maxAllowedUsers || 1)));
-  const safeUsed = Math.max(0, Math.min(safeMax, Math.round(tokenData.usedCount || 0)));
-  const safeMode: 'full-lock' | 'read-only-watermark' | 'form-comments-only' =
-    tokenData.lockEditingMode === 'full-lock' ||
-    tokenData.lockEditingMode === 'read-only-watermark' ||
-    tokenData.lockEditingMode === 'form-comments-only'
-      ? tokenData.lockEditingMode
-      : 'full-lock';
-
-  let existingSnap;
-  try {
-    existingSnap = await getDoc(tokenRef);
-  } catch {
-    return false;
-  }
-
-  if (!existingSnap.exists()) {
-    try {
-      await setDoc(tokenRef, {
-        id: cleanTokenId,
-        ownerId: cleanUid,
-        fileName: safeFileName,
-        docType: safeDocType,
-        passwordHash: safePassHash,
-        maxAllowedUsers: safeMax,
-        usedCount: 0,
-        lockEditingMode: safeMode,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      return true;
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `documentAccessTokens/${cleanTokenId}`);
-    }
-  } else {
-    try {
-      await updateDoc(tokenRef, {
-        fileName: safeFileName,
-        passwordHash: safePassHash,
-        maxAllowedUsers: safeMax,
-        usedCount: safeUsed,
-        lockEditingMode: safeMode,
-        updatedAt: serverTimestamp(),
-      });
-      return true;
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `documentAccessTokens/${cleanTokenId}`);
-    }
-  }
-}
-
-export async function fetchDocumentAccessTokenFromFirestore(
-  tokenId: string
-): Promise<FirestoreDocumentAccessTokenData | null> {
-  const user = auth.currentUser;
-  if (!user) return null;
-  const cleanTokenId = sanitizeId(tokenId);
-  try {
-    const snap = await getDoc(doc(db, 'documentAccessTokens', cleanTokenId));
-    if (!snap.exists()) return null;
-    const d = snap.data();
-    return {
-      id: String(d.id || cleanTokenId),
-      ownerId: String(d.ownerId || user.uid),
-      fileName: String(d.fileName || 'Protected_Document.docx'),
-      docType:
-        d.docType === 'excel' || d.docType === 'powerpoint' ? d.docType : 'word',
-      passwordHash: String(d.passwordHash || ''),
-      maxAllowedUsers: Number(d.maxAllowedUsers) || 1,
-      usedCount: Number(d.usedCount) || 0,
-      lockEditingMode:
-        d.lockEditingMode === 'read-only-watermark' ||
-        d.lockEditingMode === 'form-comments-only'
-          ? d.lockEditingMode
-          : 'full-lock',
-    };
-  } catch {
-    return null;
-  }
-}
-
-export async function incrementDocumentAccessTokenUsedCountInFirestore(
-  tokenId: string,
-  newUsedCount: number
-): Promise<boolean> {
-  const user = auth.currentUser;
-  if (!user || !user.emailVerified) return false;
-  const cleanTokenId = sanitizeId(tokenId);
-  try {
-    await updateDoc(doc(db, 'documentAccessTokens', cleanTokenId), {
-      usedCount: newUsedCount,
-      updatedAt: serverTimestamp(),
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
 

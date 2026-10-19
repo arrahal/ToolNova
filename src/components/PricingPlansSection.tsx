@@ -415,19 +415,71 @@ export const PricingPlansSection: React.FC<PricingPlansSectionProps> = ({
                 </ul>
               </div>
 
-              <button
-                type="button"
-                onClick={() => onSelectPlan(plan.id)}
-                className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  isCurrent
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : isPro
-                    ? 'bg-[#e5322d] hover:bg-[#d12823] text-white shadow-xs'
-                    : 'bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100'
-                }`}
-              >
-                {isCurrent ? P.currentPlanBtn : P.selectPlanBtn}
-              </button>
+              {(() => {
+                const isProviderConfigured = Boolean(
+                  import.meta.env.VITE_LEMONSQUEEZY_STORE_URL ||
+                  import.meta.env.VITE_LEMONSQUEEZY_CHECKOUT_URL
+                );
+                const comingSoonLabel =
+                  language === 'ar'
+                    ? 'قريباً'
+                    : language === 'fr'
+                    ? 'Bientôt'
+                    : language === 'es'
+                    ? 'Próximamente'
+                    : 'Coming Soon';
+
+                if (isCurrent) {
+                  return (
+                    <button
+                      type="button"
+                      disabled
+                      className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-600 text-white opacity-90 cursor-default"
+                    >
+                      {P.currentPlanBtn}
+                    </button>
+                  );
+                }
+
+                if (plan.id === 'free') {
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => onSelectPlan('free')}
+                      className="w-full py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+                    >
+                      {P.selectPlanBtn}
+                    </button>
+                  );
+                }
+
+                if (!isProviderConfigured) {
+                  return (
+                    <button
+                      type="button"
+                      disabled
+                      title={comingSoonLabel}
+                      className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 cursor-not-allowed"
+                    >
+                      {comingSoonLabel}
+                    </button>
+                  );
+                }
+
+                return (
+                  <button
+                    type="button"
+                    onClick={() => onSelectPlan(plan.id)}
+                    className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      isPro
+                        ? 'bg-[#e5322d] hover:bg-[#d12823] text-white shadow-xs'
+                        : 'bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100'
+                    }`}
+                  >
+                    {P.selectPlanBtn}
+                  </button>
+                );
+              })()}
             </div>
           );
         })}

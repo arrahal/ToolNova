@@ -12,13 +12,26 @@ export const NODE_ENV = process.env.NODE_ENV || 'development';
 export const PROJECT_ROOT = process.cwd();
 export const VAULT_STORE_FILE = path.join(PROJECT_ROOT, '.vault_quotas.json');
 export const PROTECTOR_DB_FILE = path.join(PROJECT_ROOT, '.protector_db.json');
-export const SECURE_STORAGE_DIR = path.join(PROJECT_ROOT, '.secure_storage');
+export const STORAGE_DIR = process.env.STORAGE_DIR || path.join(PROJECT_ROOT, '.secure_storage');
+export const SECURE_STORAGE_DIR = STORAGE_DIR;
 
 // Public base URL used for client links and thin client launcher API calls
 export const PUBLIC_BASE_URL = (
   process.env.PUBLIC_BASE_URL ||
   (process.env.PORT ? `http://localhost:${process.env.PORT}` : 'http://localhost:3000')
 ).replace(/\/$/, '');
+
+// Audit IP salt for privacy-preserving SHA-256 IP hashing
+export const AUDIT_IP_SALT = process.env.AUDIT_IP_SALT || 'toolnova_default_audit_salt_2026';
+
+// Configurable CORS allowlist from env
+export const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// Configurable trust proxy setting
+export const TRUST_PROXY = process.env.TRUST_PROXY;
 
 // Load Firebase Project ID from env or firebase-applet-config.json
 function resolveFirebaseProjectId(): string {
@@ -41,6 +54,23 @@ function resolveFirebaseProjectId(): string {
 }
 
 export const FIREBASE_PROJECT_ID = resolveFirebaseProjectId();
+
+function resolveFirestoreDatabaseId(): string {
+  if (process.env.FIRESTORE_DATABASE_ID) return process.env.FIRESTORE_DATABASE_ID;
+  const configPath = path.join(PROJECT_ROOT, 'firebase-applet-config.json');
+  try {
+    if (fs.existsSync(configPath)) {
+      const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      if (parsed.firestoreDatabaseId) return parsed.firestoreDatabaseId;
+    }
+  } catch (err) {
+    console.error('Failed to read firestoreDatabaseId:', err);
+  }
+  return 'ai-studio-toolnova-339d7e1e-b948-437e-94da-66fea2490075';
+}
+
+export const FIRESTORE_DATABASE_ID = resolveFirestoreDatabaseId();
+export const LEMONSQUEEZY_WEBHOOK_SECRET = process.env.LEMONSQUEEZY_WEBHOOK_SECRET || '';
 
 // Master Key ID for key rotation support (clean identifier)
 export const CURRENT_MASTER_KEY_ID =

@@ -211,7 +211,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
   const [phone, setPhone] = useState('');
   const [companyOrRole, setCompanyOrRole] = useState('');
   const [country, setCountry] = useState('');
-  const [planId, setPlanId] = useState<'free' | 'pro' | 'business'>('pro');
+  const [planId, setPlanId] = useState<'free' | 'pro' | 'business'>('free');
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [formError, setFormError] = useState('');
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
@@ -225,7 +225,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
       setPhone(currentUser.phone);
       setCompanyOrRole(currentUser.companyOrRole);
       setCountry(currentUser.country);
-      setPlanId(currentUser.planId);
+      setPlanId(currentUser.planId || 'free');
     } else {
       setFullName('');
       setEmail('');
@@ -233,7 +233,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
       setPhone('');
       setCompanyOrRole('');
       setCountry('');
-      setPlanId('pro');
+      setPlanId('free');
     }
     setSavedSuccess(false);
     setFormError('');
@@ -553,22 +553,26 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                     </button>
                   )}
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['free', 'pro', 'business'] as const).map((tier) => (
-                    <button
-                      key={tier}
-                      type="button"
-                      onClick={() => setPlanId(tier)}
-                      className={`py-2 px-2.5 rounded-full text-[11px] font-bold border transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                        planId === tier
-                          ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`w-2.5 h-2.5 rounded-full ${
+                        planId === 'free' ? 'bg-slate-400' : 'bg-emerald-500'
                       }`}
-                    >
-                      {tier === 'pro' && <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />}
-                      <span className="truncate">{L.planNames[tier]}</span>
-                    </button>
-                  ))}
+                    />
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      {L.planNames[planId || 'free']}
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-medium text-slate-500">
+                    {planId === 'free'
+                      ? language === 'ar'
+                        ? 'الخطة الأساسية المجانية'
+                        : 'Free Basic Plan'
+                      : language === 'ar'
+                      ? 'خطة معتمدة ومحققة ✓'
+                      : 'Verified Active Plan ✓'}
+                  </span>
                 </div>
               </div>
             </div>

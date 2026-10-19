@@ -393,6 +393,8 @@ export function clearFailedPasswordAttempts(key: string): void {
 // ============================================================================
 export interface SecureViewerPayload {
   viewerType: 'word' | 'excel' | 'powerpoint' | 'pdf' | 'zip';
+  previewAvailable?: boolean;
+  previewError?: string;
   htmlContent?: string;
   textContent?: string;
   sheets?: { name: string; rows: string[][] }[];
@@ -401,148 +403,70 @@ export interface SecureViewerPayload {
   zipEntries?: { name: string; sizeBytes: number; isDirectory: boolean; compressedSize: number }[];
 }
 
+async function runParserInWorker(
+  buffer: Buffer,
+  ext: string,
+  originalName: string
+): Promise<SecureViewerPayload> {
+  return new Promise((resolve, reject) => {
+    const workerPath = path.resolve(PROJECT_ROOT, 'server/parserWorker.js');
+    const worker = new Worker(workerPath, {
+      workerData: { buffer, ext, originalName },
+      resourceLimits: {
+        maxOldGenerationSizeMb: 128,
+        maxYoungGenerationSizeMb: 32,
+      },
+    });
+
+    let finished = false;
+    const timeout = setTimeout(() => {
+      if (!finished) {
+        finished = true;
+        worker.terminate().catch(() => {});
+        reject(new Error('TIMEOUT: استغرقت عملية فك وتحليل المستند وقتاً أطول من المسموح به.'));
+      }
+    }, 5000);
+
+    worker.on('message', (msg) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
+      if (msg && msg.ok) {
+        resolve(msg.result);
+      } else {
+        reject(new Error(msg?.error || 'فشلت عملية تحليل المستند.'));
+      }
+    });
+
+    worker.on('error', (err) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
+      reject(err);
+    });
+
+    worker.on('exit', (code) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
+      if (code !== 0) {
+        reject(new Error(`توقف معالج تحليل المستندات برمز خروج ${code}`));
+      }
+    });
+  });
+}
+
 export async function buildSecureViewerPayload(
   decryptedBuffer: Buffer,
   record: ProtectedFileRecord
 ): Promise<SecureViewerPayload> {
   const ext = record.extension.toLowerCase();
 
-  if (ext === '.docx' || ext === '.doc') {
-    try {
-      const htmlRes = await mammoth.convertToHtml({ buffer: decryptedBuffer });
-      const rawRes = await mammoth.extractRawText({ buffer: decryptedBuffer });
-      const rawHtml =
-        htmlRes.value ||
-        `<p>${(rawRes.value || 'مستند Word فارغ').replace(/\n/g, '</p><p>')}</p>`;
-      return {
-        viewerType: 'word',
-        htmlContent: sanitizeHtml(rawHtml),
-        textContent: rawRes.value || '',
-      };
-    } catch {
-      const fallbackText = decryptedBuffer
-        .toString('utf-8')
-        .replace(/[^\x20-\x7E\u0600-\u06FF\n\r\t]/g, ' ');
-      const safeEscaped = fallbackText
-        .slice(0, 8000)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      return {
-        viewerType: 'word',
-        htmlContent: `<div class="space-y-2"><p>${safeEscaped}</p></div>`,
-        textContent: fallbackText.slice(0, 8000),
-      };
-    }
-  }
-
-  if (ext === '.xlsx' || ext === '.xls') {
-    try {
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(decryptedBuffer as unknown as ExcelJS.Buffer);
-      const sheets: { name: string; rows: string[][] }[] = [];
-      workbook.eachSheet((worksheet) => {
-        const rows: string[][] = [];
-        worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-          if (rowNumber <= 200) {
-            const values = Array.isArray(row.values) ? row.values.slice(1) : [];
-            rows.push(
-              values.map((cellVal) => {
-                if (cellVal === null || cellVal === undefined) return '';
-                if (typeof cellVal === 'object') {
-                  if ('result' in cellVal && (cellVal as any).result !== undefined) {
-                    return String((cellVal as any).result);
-                  }
-                  if ('text' in cellVal && (cellVal as any).text !== undefined) {
-                    return String((cellVal as any).text);
-                  }
-                  return JSON.stringify(cellVal);
-                }
-                return String(cellVal);
-              })
-            );
-          }
-        });
-        sheets.push({
-          name: worksheet.name || 'Sheet1',
-          rows: rows.length > 0 ? rows : [['(جدول فارغ / Empty Sheet)']],
-        });
-      });
-      return {
-        viewerType: 'excel',
-        sheets: sheets.length > 0 ? sheets : [{ name: 'Sheet1', rows: [['لا توجد بيانات']] }],
-      };
-    } catch {
-      return {
-        viewerType: 'excel',
-        sheets: [
-          { name: 'Sheet1', rows: [['تعذر قراءة خلايا الجدول، لكن تم فك تشفير الملف بنجاح.']] },
-        ],
-      };
-    }
-  }
-
-  if (ext === '.pptx' || ext === '.ppt') {
-    try {
-      const zip = await JSZip.loadAsync(decryptedBuffer);
-      const slideFiles = Object.keys(zip.files)
-        .filter((k) => /^ppt\/slides\/slide\d+\.xml$/i.test(k))
-        .sort((a, b) => {
-          const numA = parseInt(a.match(/slide(\d+)\.xml/i)?.[1] || '0', 10);
-          const numB = parseInt(b.match(/slide(\d+)\.xml/i)?.[1] || '0', 10);
-          return numA - numB;
-        });
-
-      const slides: { slideNumber: number; title: string; bullets: string[] }[] = [];
-      for (let i = 0; i < slideFiles.length; i++) {
-        const xml = await zip.files[slideFiles[i]].async('string');
-        const matches = Array.from(xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g))
-          .map((m) =>
-            m[1]
-              .replace(/&amp;/g, '&')
-              .replace(/&lt;/g, '<')
-              .replace(/&gt;/g, '>')
-              .replace(/&quot;/g, '"')
-              .trim()
-          )
-          .filter(Boolean);
-
-        slides.push({
-          slideNumber: i + 1,
-          title: matches[0] || `الشريحة ${i + 1}`,
-          bullets: matches.slice(1),
-        });
-      }
-
-      if (slides.length === 0) {
-        slides.push({
-          slideNumber: 1,
-          title: record.originalName,
-          bullets: ['تم فك تشفير العرض التقديمي بنجاح داخل العارض الآمن.'],
-        });
-      }
-
-      return {
-        viewerType: 'powerpoint',
-        slides,
-      };
-    } catch {
-      return {
-        viewerType: 'powerpoint',
-        slides: [
-          {
-            slideNumber: 1,
-            title: record.originalName,
-            bullets: ['تم التحقق من كلمة المرور وفك تشفير العرض التقديمي بنجاح.'],
-          },
-        ],
-      };
-    }
-  }
-
+  // PDF files are viewed directly in PDF.js viewer
   if (ext === '.pdf') {
     return {
       viewerType: 'pdf',
+      previewAvailable: true,
       pdfBase64:
         decryptedBuffer.byteLength <= 3 * 1024 * 1024
           ? decryptedBuffer.toString('base64')
@@ -550,41 +474,34 @@ export async function buildSecureViewerPayload(
     };
   }
 
-  // .zip archive inspection
   try {
-    const zip = await JSZip.loadAsync(decryptedBuffer);
-    const zipEntries: {
-      name: string;
-      sizeBytes: number;
-      isDirectory: boolean;
-      compressedSize: number;
-    }[] = [];
+    const parsed = await runParserInWorker(decryptedBuffer, ext, record.originalName);
+    return parsed;
+  } catch (err: any) {
+    const errMessage = String(err?.message || '');
+    let honestError =
+      'تم فك تشفير الملف بنجاح، ولكن تعذر إنشاء معاينة تفاعلية لهذا التنسيق أو لاحتوائه على عناصر غير مدعومة.';
 
-    for (const [entryPath, fileObj] of Object.entries(zip.files)) {
-      const rawData = fileObj.dir ? null : await fileObj.async('uint8array').catch(() => null);
-      zipEntries.push({
-        name: entryPath,
-        sizeBytes: rawData ? rawData.byteLength : 0,
-        isDirectory: fileObj.dir,
-        compressedSize: rawData ? Math.round(rawData.byteLength * 0.72) : 0,
-      });
+    if (errMessage.includes('ZIP_BOMB')) {
+      honestError = `تم حظر إنشاء المعاينة لأسباب أمنية: ${errMessage.replace(/^Error:\s*/, '')}`;
+    } else if (errMessage.includes('TIMEOUT')) {
+      honestError = 'استغرقت عملية إعداد المعاينة وقتاً أطول من المسموح به.';
     }
 
+    const viewerType: SecureViewerPayload['viewerType'] =
+      ext === '.docx' || ext === '.doc'
+        ? 'word'
+        : ext === '.xlsx' || ext === '.xls'
+        ? 'excel'
+        : ext === '.pptx' || ext === '.ppt'
+        ? 'powerpoint'
+        : 'zip';
+
     return {
-      viewerType: 'zip',
-      zipEntries,
-    };
-  } catch {
-    return {
-      viewerType: 'zip',
-      zipEntries: [
-        {
-          name: record.originalName,
-          sizeBytes: record.fileSize,
-          isDirectory: false,
-          compressedSize: record.fileSize,
-        },
-      ],
+      viewerType,
+      previewAvailable: false,
+      previewError: honestError,
     };
   }
 }
+

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
+import fs from 'fs';
 import { createExpressApp } from '../server';
 import { setCustomTokenVerifierForTesting } from '../server/auth';
 import { toPublicFileDto, ProtectedFileRecord } from '../server/storage';
+import { PROTECTOR_DB_FILE } from '../server/config';
 
 let server: http.Server;
 let baseUrl: string;
@@ -20,6 +22,9 @@ const unverifiedToken = makeTestToken('user_unverified', false, 'unverified@exam
 
 beforeAll(async () => {
   process.env.NODE_ENV = 'test';
+  try {
+    fs.writeFileSync(PROTECTOR_DB_FILE, '{}', 'utf-8');
+  } catch {}
   const app = createExpressApp();
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', () => {

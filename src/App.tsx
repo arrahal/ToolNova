@@ -51,7 +51,6 @@ import {
   onAuthStateChanged,
   fetchUserProfileFromFirestore,
   saveUserProfileToFirestore,
-  updateUserPlanInFirestore,
   saveWorkflowToFirestore,
   saveActivityLogToFirestore,
   subscribeToUserWorkspace,
@@ -89,18 +88,7 @@ export default function App() {
       return null;
     }
   });
-  const [activePlan, setActivePlan] = useState<PlanTierId>(() => {
-    try {
-      const saved = localStorage.getItem('toolnova_user_profile');
-      if (saved) {
-        const parsed = JSON.parse(saved) as UserProfileData;
-        if (parsed.planId) return parsed.planId;
-      }
-    } catch {
-      // ignore
-    }
-    return 'pro';
-  });
+  const [activePlan, setActivePlan] = useState<PlanTierId>('free');
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const langMenuRef = useRef<HTMLDivElement | null>(null);
@@ -144,7 +132,7 @@ export default function App() {
               phone: '+212 600-000000',
               companyOrRole: 'Independent Professional',
               country: 'Morocco',
-              planId: activePlan,
+              planId: 'free',
               joinedAt: new Date().toISOString().slice(0, 10),
             };
             await saveUserProfileToFirestore(fbUser.uid, profile);
@@ -181,6 +169,8 @@ export default function App() {
         }
       } else {
         setUserPhotoURL(null);
+        setCurrentUser(null);
+        setActivePlan('free');
       }
     });
 
@@ -244,11 +234,21 @@ export default function App() {
 
   const handleOpenTool = (tool: ToolItem) => {
     setSelectedCardId(tool.id);
-    if (tool.id === 'file-protector') {
+    if (
+      tool.id === 'file-protector' ||
+      tool.id === 'protect-word' ||
+      tool.id === 'protect-excel' ||
+      tool.id === 'protect-powerpoint'
+    ) {
       setFileProtectorModalState({ isOpen: true, tab: 'encrypt' });
       return;
     }
-    if (tool.id === 'open-secure-file') {
+    if (
+      tool.id === 'open-secure-file' ||
+      tool.id === 'unlock-word' ||
+      tool.id === 'unlock-excel' ||
+      tool.id === 'unlock-powerpoint'
+    ) {
       setFileProtectorModalState({ isOpen: true, tab: 'open' });
       return;
     }
@@ -1036,23 +1036,12 @@ export default function App() {
             language={language}
             activePlan={activePlan}
             onSelectPlan={(plan) => {
-              setActivePlan(plan);
+              if (plan === 'free') {
+                setActivePlan('free');
+                return;
+              }
               if (currentUser) {
-                const updated: UserProfileData = {
-                  ...currentUser,
-                  planId: plan,
-                };
-                setCurrentUser(updated);
-                try {
-                  localStorage.setItem('toolnova_user_profile', JSON.stringify(updated));
-                } catch {
-                  // ignore
-                }
-                if (auth.currentUser?.uid) {
-                  updateUserPlanInFirestore(auth.currentUser.uid, plan).catch((err) =>
-                    console.error('Failed to update plan in Firestore:', err)
-                  );
-                }
+                setIsUpgradeModalOpen(true);
               } else {
                 setIsAuthModalOpen(true);
               }
@@ -1247,28 +1236,10 @@ export default function App() {
         onClose={() => setIsUpgradeModalOpen(false)}
         language={language}
         activePlan={activePlan}
-        onUpgradeSuccess={(plan, method) => {
-          setActivePlan(plan);
-          if (currentUser) {
-            const updated: UserProfileData = {
-              ...currentUser,
-              planId: plan,
-            };
-            setCurrentUser(updated);
-            try {
-              localStorage.setItem('toolnova_user_profile', JSON.stringify(updated));
-            } catch {
-              // ignore
-            }
-            if (auth.currentUser?.uid) {
-              updateUserPlanInFirestore(auth.currentUser.uid, plan).catch((err) =>
-                console.error('Failed to update plan in Firestore:', err)
-              );
-            }
-          }
+        onUpgradeSuccess={(_plan, method) => {
           handleRecordHistory(
-            language === 'ar' ? 'ترقية الباقة (Pro)' : 'Subscription Upgrade',
-            `Plan: ${plan.toUpperCase()} via ${method}`
+            language === 'ar' ? 'طلب ترقية الحساب' : 'Subscription Checkout Initiated',
+            `Provider: ${method}`
           );
         }}
       />

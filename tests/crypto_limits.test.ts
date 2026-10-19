@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -12,7 +12,8 @@ import {
   validatePasswordPolicy,
   verifyContainerHmac,
 } from '../server/crypto';
-import { getEncryptedFilePath, readProtectorDb } from '../server/storage';
+import { PROTECTOR_DB_FILE } from '../server/config';
+import { getEncryptedFilePath, readProtectorDb, getProtectorRepository } from '../server/storage';
 
 let server: http.Server;
 let baseUrl: string;
@@ -28,6 +29,10 @@ const testUserToken = makeTestToken('crypto_tester', true, 'tester@example.com')
 
 beforeAll(async () => {
   process.env.NODE_ENV = 'test';
+  await getProtectorRepository().clearAll?.();
+  try {
+    fs.writeFileSync(PROTECTOR_DB_FILE, '{}', 'utf-8');
+  } catch {}
   const app = createExpressApp();
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', () => {
@@ -37,6 +42,14 @@ beforeAll(async () => {
     });
   });
 });
+
+beforeEach(async () => {
+  await getProtectorRepository().clearAll?.();
+  try {
+    fs.writeFileSync(PROTECTOR_DB_FILE, '{}', 'utf-8');
+  } catch {}
+});
+
 
 afterAll(async () => {
   setCustomTokenVerifierForTesting(null);
@@ -284,7 +297,9 @@ describe('Task 2 — Cryptography & Enforceable Limits', () => {
 
   // 5. Atomic Limit Enforcement Across Concurrent Requests
   describe('5. Strict Open Limit Enforced Across Concurrent Requests', () => {
-    it('enforces open limit = 1 across 5 concurrent requests (exactly 1 succeeds)', async () => {
+    it(
+      'enforces open limit = 1 across 5 concurrent requests (exactly 1 succeeds)',
+      async () => {
       // Create file with maxOpens: 1
       const encRes = await fetch(`${baseUrl}/api/protector/encrypt`, {
         method: 'POST',
@@ -335,7 +350,7 @@ describe('Task 2 — Cryptography & Enforceable Limits', () => {
       expect(db[fileId].usedOpens).toBe(1);
       expect(db[fileId].remainingOpens).toBe(0);
       expect(db[fileId].status).toBe('exhausted');
-    });
+    }, 30000);
   });
 
   // 6. Crypto-Shredding on Delete

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { AppLanguage } from '../data/translations';
 import { PlanTierId } from './PricingPlansSection';
+import { auth } from '../lib/firebase';
 
 interface SubscriptionUpgradeModalProps {
   isOpen: boolean;
@@ -240,36 +241,33 @@ export const SubscriptionUpgradeModal: React.FC<SubscriptionUpgradeModalProps> =
       ? '/ سنوياً'
       : '/ year';
 
-  const lemonCheckoutUrl =
-    billingInterval === 'monthly'
-      ? 'https://toolnova.lemonsqueezy.com/checkout/buy/pro-monthly-499?embed=1'
-      : 'https://toolnova.lemonsqueezy.com/checkout/buy/pro-annual-3900?embed=1';
+  const isProviderConfigured = Boolean(
+    import.meta.env.VITE_LEMONSQUEEZY_STORE_URL ||
+    import.meta.env.VITE_LEMONSQUEEZY_CHECKOUT_URL
+  );
+
+  const comingSoonLabel =
+    language === 'ar'
+      ? 'قريباً'
+      : language === 'fr'
+      ? 'Bientôt'
+      : language === 'es'
+      ? 'Próximamente'
+      : 'Coming Soon';
+
+  const baseStoreUrl =
+    import.meta.env.VITE_LEMONSQUEEZY_CHECKOUT_URL ||
+    import.meta.env.VITE_LEMONSQUEEZY_STORE_URL ||
+    '';
+
+  const uidParam = encodeURIComponent(auth.currentUser?.uid || '');
+  const lemonCheckoutUrl = isProviderConfigured
+    ? `${baseStoreUrl}?checkout[custom][user_id]=${uidParam}&checkout[custom][plan_id]=pro`
+    : '';
 
   const handleLemonSqueezyCheckout = () => {
-    setShowLemonOverlay(true);
-    setCheckoutState('lemon_squeezy');
-  };
-
-  const handleConfirmLemonSqueezy = () => {
-    setCheckoutState('success');
-    setTimeout(() => {
-      onUpgradeSuccess('pro', `Lemon Squeezy (${billingInterval === 'monthly' ? '$4.99/mo' : '$39/yr'})`);
-      setShowLemonOverlay(false);
-      setCheckoutState('idle');
-      onClose();
-    }, 900);
-  };
-
-  const handlePayPalSmartCheckout = () => {
-    setCheckoutState('paypal');
-    setTimeout(() => {
-      setCheckoutState('success');
-      setTimeout(() => {
-        onUpgradeSuccess('pro', `PayPal Smart Buttons (${billingInterval === 'monthly' ? '$4.99/mo' : '$39/yr'})`);
-        setCheckoutState('idle');
-        onClose();
-      }, 800);
-    }, 1000);
+    if (!isProviderConfigured) return;
+    window.open(lemonCheckoutUrl, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -449,120 +447,45 @@ export const SubscriptionUpgradeModal: React.FC<SubscriptionUpgradeModalProps> =
 
             {/* Dual Payment Buttons Section */}
             <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-700/70">
-              {checkoutState === 'success' ? (
-                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>{M.activatedLabel}</span>
+              {isProActive ? (
+                <div className="text-center text-xs font-bold text-emerald-600">
+                  ✓ {M.activatedLabel}
                 </div>
-              ) : (
-                <>
-                  {/* Button 1: Lemon Squeezy Overlay Checkout Link */}
+              ) : !isProviderConfigured ? (
+                <div className="space-y-2">
                   <button
                     type="button"
-                    onClick={handleLemonSqueezyCheckout}
-                    data-lemonsqueezy-checkout={lemonCheckoutUrl}
-                    className="lemonsqueezy-button w-full py-3 px-4 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white text-xs sm:text-sm font-extrabold shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    disabled
+                    className="w-full py-3 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-not-allowed"
+                  >
+                    <span>{comingSoonLabel}</span>
+                  </button>
+                  <p className="text-[11px] text-center text-[#64748b] dark:text-slate-400">
+                    {language === 'ar'
+                      ? 'بوابة الدفع الإلكتروني قيد التهيئة حالياً. سيتم إطلاق الاشتراكات قريباً.'
+                      : 'Payment provider integration is coming soon.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  <a
+                    href={lemonCheckoutUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-3 px-4 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white text-xs sm:text-sm font-extrabold shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <CreditCard className="w-4 h-4 shrink-0" />
                     <span>{M.payWithCardBtn}</span>
                     <ExternalLink className="w-3.5 h-3.5 opacity-80" />
-                  </button>
-
-                  {/* Button 2: PayPal Smart Buttons Integration Container */}
-                  <div
-                    id="paypal-smart-button-container"
-                    className="rounded-xl border border-amber-300/90 bg-[#FFC439] hover:bg-[#f4b829] transition-all p-0.5 shadow-2xs"
-                  >
-                    <button
-                      type="button"
-                      onClick={handlePayPalSmartCheckout}
-                      disabled={checkoutState === 'paypal'}
-                      className="w-full py-2.5 px-4 rounded-[10px] text-[#003087] font-extrabold text-xs sm:text-sm flex flex-col items-center justify-center cursor-pointer disabled:opacity-60"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span className="italic font-black tracking-tight text-base text-[#003087]">
-                          Pay
-                        </span>
-                        <span className="italic font-black tracking-tight text-base text-[#0079C1] -ml-1">
-                          Pal
-                        </span>
-                        <span className="ml-1 text-xs font-bold text-slate-900">
-                          {checkoutState === 'paypal' ? M.processingLabel : 'Smart Checkout'}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-semibold text-slate-800/80">
-                        {M.paypalSubLabel}
-                      </span>
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {isProActive && (
-                <div className="text-center text-[11px] font-bold text-emerald-600">
-                  ✓ Pro Unlimited Active on your account
+                  </a>
+                  <p className="text-[10px] text-center text-[#64748b] dark:text-slate-400">
+                    {M.lemonSqueezyNote}
+                  </p>
                 </div>
               )}
             </div>
           </div>
         </div>
-
-        {/* Lemon Squeezy Checkout Overlay Modal Simulation */}
-        {showLemonOverlay && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-            <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6">
-              <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#e5322d]" />
-                  <span className="text-xs font-extrabold text-[#111827] dark:text-white">
-                    Lemon Squeezy Checkout Overlay
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowLemonOverlay(false);
-                    setCheckoutState('idle');
-                  }}
-                  className="text-slate-400 hover:text-slate-700 cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-[#FAFAFC] dark:bg-slate-800 border border-slate-200 dark:border-slate-700 mb-4 text-xs">
-                <div className="flex items-center justify-between font-bold text-[#111827] dark:text-white mb-1">
-                  <span>ToolNova Pro Plan ({billingInterval})</span>
-                  <span className="text-[#e5322d] font-mono">{proDisplayPrice}</span>
-                </div>
-                <div className="text-[11px] text-[#64748b] font-mono truncate">
-                  {lemonCheckoutUrl}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <button
-                  type="button"
-                  onClick={handleConfirmLemonSqueezy}
-                  className="w-full py-2.5 px-4 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Complete Checkout & Activate Pro ({proDisplayPrice})</span>
-                </button>
-
-                <a
-                  href={lemonCheckoutUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-2 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-[11px] font-bold flex items-center justify-center gap-1.5"
-                >
-                  <span>Open External Lemon Squeezy Link</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Footer Security Note */}
         <div className="px-6 sm:px-8 py-3.5 bg-white dark:bg-slate-900 border-t border-slate-200/80 dark:border-slate-800 text-center text-[11px] text-[#64748b] dark:text-slate-400">

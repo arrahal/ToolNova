@@ -47,9 +47,33 @@ export const firebaseConfig = {
 };
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
+
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+// Initialize Firebase App Check with reCAPTCHA v3 and dev debug token support
+const recaptchaKey =
+  import.meta.env.VITE_RECAPTCHA_SITE_KEY ||
+  (firebaseAppletConfig as any)?.recaptchaSiteKey ||
+  '';
+
+if (typeof window !== 'undefined') {
+  if (import.meta.env.DEV) {
+    (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  }
+  if (recaptchaKey && recaptchaKey.trim().length > 0) {
+    try {
+      initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider(recaptchaKey.trim()),
+        isTokenAutoRefreshEnabled: true,
+      });
+    } catch (err) {
+      console.warn('Firebase App Check initialization error:', err);
+    }
+  }
+}
 
 export async function signInWithGoogle() {
   const result = await signInWithPopup(auth, googleProvider);
