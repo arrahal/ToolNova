@@ -686,43 +686,43 @@ const TOOL_TEXT_TRANSLATIONS: Record<
   'video-compressor': {
     ar: {
       title: 'ضغط وتصغير الفيديو',
-      description: 'قلل حجم ملفات الفيديو مع التحكم في الدقة (1080p/720p/480p) ومعدل البت.',
+      description: 'اضغط ملفات الفيديو محلياً بترميز H.264 MP4 مع التحكم في الدقة (الأصلية/1080p/720p/480p)، معامل الجودة CRF، ومعدل بت الصوت.',
     },
     fr: {
-      title: 'Compresseur Vidéo',
-      description: 'Réduisez la taille de vos vidéos en ajustant la résolution et le facteur CRF.',
+      title: 'Compresseur Vidéo H.264',
+      description: 'Compressez vos vidéos localement en MP4 H.264 avec choix de résolution, facteur CRF et débit audio.',
     },
     es: {
-      title: 'Compresor de Video',
-      description: 'Reduce el tamaño de tus videos ajustando la resolución y calidad CRF.',
+      title: 'Compresor de Video H.264',
+      description: 'Comprime videos localmente en MP4 H.264 ajustando resolución, factor CRF y tasa de bits de audio.',
     },
   },
   'video-to-gif': {
     ar: {
       title: 'تحويل الفيديو إلى GIF',
-      description: 'حوّل لقطات الفيديو إلى صور متحركة GIF خفيفة مع التحكم في عدد الإطارات والأبعاد.',
+      description: 'اقتطع أي جزء من الفيديو وحوّله إلى صورة متحركة GIF عالية النقاء مع الحفاظ على الأبعاد الأصلية وتوليد لوحة ألوان ذكية.',
     },
     fr: {
       title: 'Vidéo en GIF animé',
-      description: 'Transformez vos clips vidéo en GIFs animés légers avec contrôle des FPS.',
+      description: 'Découpez un extrait vidéo et convertissez-le en GIF animé fidèle au ratio original avec palette optimisée.',
     },
     es: {
       title: 'Video a GIF animado',
-      description: 'Convierte clips de video en GIFs animados ligeros configurando FPS y tamaño.',
+      description: 'Recorta cualquier fragmento de video y conviértelo en un GIF nítido respetando la proporción original con paleta optimizada.',
     },
   },
   'speech-to-text': {
     ar: {
-      title: 'تحويل الكلام إلى نص',
-      description: 'فرّغ التسجيلات الصوتية والإملاء المباشر باللغة العربية والفرنسية والإنجليزية إلى نص أو ملف ترجمة SRT.',
+      title: 'تحويل الكلام إلى نص (تفريغ صوتي)',
+      description: 'فرّغ ملفات الصوت والفيديو محلياً بنموذج Whisper الذكي أو عبر الإملاء الصوتي المباشر مع التصدير إلى SRT وVTT وDOCX وMD وTXT.',
     },
     fr: {
-      title: 'Transcription Audio en Texte',
-      description: 'Transcrivez la parole en texte horodaté, Markdown ou sous-titres SRT.',
+      title: 'Transcription Audio & Vidéo en Texte',
+      description: 'Transcrivez vos fichiers audio/vidéo localement avec Whisper ou par dictée vocale et exportez en SRT, VTT, DOCX, MD ou TXT.',
     },
     es: {
-      title: 'Voz a Texto / Transcribir',
-      description: 'Transcribe grabaciones o dictado en vivo a texto, Markdown o subtítulos SRT.',
+      title: 'Voz a Texto / Transcripción',
+      description: 'Transcribe archivos de audio y video localmente con Whisper o dictado en vivo y exporta a SRT, VTT, DOCX, MD o TXT.',
     },
   },
   'word-format-doctor': {

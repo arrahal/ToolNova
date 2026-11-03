@@ -1,8 +1,7 @@
 import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt';
 import { decryptPDF, isEncrypted } from '@pdfsmaller/pdf-decrypt';
-import mammoth from 'mammoth';
-import JSZip from 'jszip';
+import { getMammoth, getJSZip } from './lazyModules';
 import {
   extractRealPdfContent,
   renderPdfPageToCanvas,
@@ -866,6 +865,7 @@ export async function processPdfAction(
 
     if (fileNameLower.endsWith('.docx')) {
       try {
+        const mammoth = await getMammoth();
         const res = await mammoth.extractRawText({
           arrayBuffer: firstFile.bytes.buffer.slice(
             firstFile.bytes.byteOffset,
@@ -1224,6 +1224,7 @@ export async function processPdfAction(
     // Mode B: Split into individual 1-page PDF files (or ZIP bundle)
     if (splitMode === 'each') {
       const extraFiles: { name: string; bytes: Uint8Array; pageCount: number }[] = [];
+      const JSZip = await getJSZip();
       const zip = new JSZip();
 
       for (const idx of indices) {
@@ -1267,6 +1268,7 @@ export async function processPdfAction(
     if (splitMode === 'fixed-interval') {
       const interval = Math.max(1, options.splitInterval || 2);
       const extraFiles: { name: string; bytes: Uint8Array; pageCount: number }[] = [];
+      const JSZip = await getJSZip();
       const zip = new JSZip();
 
       let partNum = 1;

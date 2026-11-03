@@ -79,7 +79,7 @@ export function validatePasswordPolicy(password: unknown): { ok: boolean; error?
 // ============================================================================
 interface WorkerPendingItem {
   resolve: (value: { passwordVerificationHash: Buffer; userKeyMaterial: Buffer }) => void;
-  reject: (reason: any) => void;
+  reject: (reason?: unknown) => void;
   timer: NodeJS.Timeout;
 }
 
@@ -477,8 +477,8 @@ export async function buildSecureViewerPayload(
   try {
     const parsed = await runParserInWorker(decryptedBuffer, ext, record.originalName);
     return parsed;
-  } catch (err: any) {
-    const errMessage = String(err?.message || '');
+  } catch (err: unknown) {
+    const errMessage = String((err as { message?: string })?.message || '');
     let honestError =
       'تم فك تشفير الملف بنجاح، ولكن تعذر إنشاء معاينة تفاعلية لهذا التنسيق أو لاحتوائه على عناصر غير مدعومة.';
 

@@ -11,7 +11,7 @@ export const billingRouter = Router();
  */
 billingRouter.post('/webhook', async (req: Request, res: Response) => {
   const signature = req.headers['x-signature'] as string | undefined;
-  const rawBody = (req as any).rawBody as Buffer | undefined;
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
 
   if (!LEMONSQUEEZY_WEBHOOK_SECRET) {
     console.error('[Billing Webhook] LEMONSQUEEZY_WEBHOOK_SECRET is not configured.');
@@ -105,7 +105,7 @@ billingRouter.post('/webhook', async (req: Request, res: Response) => {
         } else if (subscriptionStatus === 'cancelled' || subscriptionStatus === 'expired') {
           await setUserEntitlement(targetUid, {
             planId: 'free',
-            status: subscriptionStatus as any,
+            status: subscriptionStatus === 'cancelled' ? 'cancelled' : 'expired',
             provider: 'lemonsqueezy',
           });
         }
@@ -136,7 +136,7 @@ billingRouter.post('/webhook', async (req: Request, res: Response) => {
     }
 
     res.status(200).json({ success: true, event: eventName, uid: targetUid });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error(`[Billing Webhook Error]:`, err);
     res.status(500).json({ error: 'Failed to process entitlement update.' });
   }

@@ -2,10 +2,10 @@ import DOMPurify from 'dompurify';
 import { JSDOM } from 'jsdom';
 
 const jsdomWindow = new JSDOM('').window;
-const purify = (DOMPurify as any)(jsdomWindow);
+const purify = DOMPurify(jsdomWindow as unknown as Parameters<typeof DOMPurify>[0]);
 
 // Strict hook: enforce no javascript: URLs and data: URLs only for images
-purify.addHook('uponSanitizeAttribute', (_node: any, data: any) => {
+purify.addHook('uponSanitizeAttribute', (_node: unknown, data: { attrName?: string; attrValue?: string; keepAttr?: boolean }) => {
   if (data.attrName === 'src' || data.attrName === 'href') {
     const val = String(data.attrValue || '').trim().toLowerCase();
     if (val.startsWith('javascript:') || val.startsWith('vbscript:')) {

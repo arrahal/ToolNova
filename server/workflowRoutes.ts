@@ -100,7 +100,7 @@ workflowRouter.post('/', async (req: Request, res: Response) => {
     await adminDb.collection('workflows').doc(wfId).set(workflowRecord);
 
     res.status(201).json({ ok: true, workflow: workflowRecord });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Error creating workflow:', err);
     res.status(500).json({ error: 'فشل حفظ مسار العمل في قاعدة البيانات.' });
   }
@@ -131,7 +131,7 @@ workflowRouter.put('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    const updates: Record<string, any> = { updatedAt: Date.now() };
+    const updates: Record<string, unknown> = { updatedAt: Date.now() };
     if (name !== undefined) {
       const cleanName = String(name).trim();
       if (cleanName.length < 1 || cleanName.length > 120) {

@@ -1,14 +1,25 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import { PORT, NODE_ENV, PROJECT_ROOT, ALLOWED_ORIGINS } from './server/config';
 import { protectorRouter } from './server/protectorRoutes';
 import { billingRouter } from './server/billingRoutes';
 import { workflowRouter } from './server/workflowRoutes';
 import { billingLimiter } from './server/rateLimiters';
 
-export function createExpressApp() {
+export interface RequestWithRawBody extends Request {
+  rawBody?: Buffer;
+}
+
+interface HttpErrorLike {
+  status?: number;
+  statusCode?: number;
+  type?: string;
+  message?: string;
+  body?: unknown;
+}
+
+export function createExpressApp(): express.Express {
   const app = express();
 
   // 1. Configurable Trust Proxy (Requirement 2)
@@ -41,10 +52,23 @@ export function createExpressApp() {
             objectSrc: ["'none'"],
             baseUri: ["'none'"],
             frameAncestors: ["'self'"],
-            scriptSrc: ["'self'"],
+            scriptSrc: ["'self'", "'wasm-unsafe-eval'", 'blob:'],
+            workerSrc: ["'self'", 'blob:'],
             styleSrc: ["'self'", "'unsafe-inline'"],
             imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
-            connectSrc: ["'self'", 'https://*.googleapis.com', 'https://*.firebaseio.com'],
+            mediaSrc: ["'self'", 'data:', 'blob:'],
+            connectSrc: [
+              "'self'",
+              'blob:',
+              'data:',
+              'https://*.googleapis.com',
+              'https://*.firebaseio.com',
+              'https://huggingface.co',
+              'https://*.huggingface.co',
+              'https://*.hf.co',
+              'https://unpkg.com',
+              'https://cdn.jsdelivr.net',
+            ],
           },
         },
         crossOriginEmbedderPolicy: false,
@@ -67,7 +91,7 @@ export function createExpressApp() {
   }
 
   // 3. Security & CORS Headers with configurable allowlist from ALLOWED_ORIGINS (Requirement 1)
-  app.use((req, res, next) => {
+  app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
     if (ALLOWED_ORIGINS && ALLOWED_ORIGINS.length > 0) {
       if (origin && ALLOWED_ORIGINS.includes(origin)) {
@@ -103,7 +127,7 @@ export function createExpressApp() {
   app.use(
     express.json({
       limit: '1mb',
-      verify: (req: any, _res, buf) => {
+      verify: (req: RequestWithRawBody, _res: Response, buf: Buffer) => {
         req.rawBody = buf;
       },
     })
@@ -111,9 +135,10 @@ export function createExpressApp() {
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
   // Early JSON payload size / syntax error handler
-  app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (err) {
-      if (err.type === 'entity.too.large' || err.status === 413) {
+  app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+    if (err && typeof err === 'object') {
+      const httpErr = err as HttpErrorLike;
+      if (httpErr.type === 'entity.too.large' || httpErr.status === 413) {
         res.status(413).json({
           ok: false,
           error:
@@ -138,13 +163,18 @@ export function createExpressApp() {
   app.use('/api/workflows', workflowRouter);
 
   // 6. Final Global Error Handler: Never leak stack traces or file system paths (Requirement 9)
-  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (res.headersSent) {
       return;
     }
-    const statusCode = typeof err?.status === 'number' && err.status >= 400 && err.status < 600 ? err.status : 500;
+    const httpErr = err && typeof err === 'object' ? (err as HttpErrorLike) : null;
+    const statusCode =
+      typeof httpErr?.status === 'number' && httpErr.status >= 400 && httpErr.status < 600
+        ? httpErr.status
+        : 500;
+
     // Log server error internally without exposing to user
-    console.error('[SERVER ERROR CAUGHT]', err?.message || err);
+    console.error('[SERVER ERROR CAUGHT]', httpErr?.message || err);
 
     res.status(statusCode).json({
       ok: false,
@@ -155,10 +185,12 @@ export function createExpressApp() {
   return app;
 }
 
-export async function startServer() {
+export async function startServer(): Promise<express.Express> {
   const app = createExpressApp();
 
   if (NODE_ENV !== 'production' && NODE_ENV !== 'test') {
+    // Dynamic import of vite so it is never bundled into production server
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -167,7 +199,7 @@ export async function startServer() {
   } else if (NODE_ENV === 'production') {
     const distPath = path.join(PROJECT_ROOT, 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (_req, res) => {
+    app.get('*all', (_req: Request, res: Response) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

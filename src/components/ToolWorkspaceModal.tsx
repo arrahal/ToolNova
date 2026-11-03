@@ -11,10 +11,8 @@ import {
   RefreshCw,
   Sliders,
   Plus,
-  Mic,
   Volume2,
   Trash2,
-  Film,
   ArrowUp,
   ArrowDown,
   ChevronLeft,
@@ -34,7 +32,10 @@ import {
   Gauge,
 } from 'lucide-react';
 import { ToolItem } from '../data/toolsData';
+import { AppLanguage } from '../data/translations';
+import { VIDEO_AI_STRINGS } from '../i18n/videoAiStrings';
 import { ToolBrandIcon } from './ToolBrandIcon';
+import { VideoAiWorkspace } from './VideoAiWorkspace';
 import {
   createSamplePdfBytes,
   processPdfAction,
@@ -49,10 +50,7 @@ import {
   formatIndicesToRangeString,
   normalizePageRangeString,
 } from '../utils/mediaProcessors';
-import {
-  renderPdfPageToCanvas,
-  encodeFramesToAnimatedGif,
-} from '../utils/pdfAndGifEngine';
+import { renderPdfPageToCanvas } from '../utils/pdfAndGifEngine';
 import {
   WordDoctorOptions,
   WordMergeFileItem,
@@ -214,21 +212,12 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   const [audioPitchSemitones, setAudioPitchSemitones] = useState(0);
   const [audioGainDb, setAudioGainDb] = useState(0);
 
-  // ---------------- VIDEO & AI STATE ----------------
-  const videoPreviewCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const uploadedVideoElRef = useRef<HTMLVideoElement | null>(null);
-  const [uploadedVideoName, setUploadedVideoName] = useState<string | null>(null);
-  const [videoResolution, setVideoResolution] = useState<'1080p' | '720p' | '480p'>('720p');
-  const [videoCrf, setVideoCrf] = useState(24);
-  const [gifFps, setGifFps] = useState(12);
-  const [gifWidth, setGifWidth] = useState(360);
-  const [isExportingVideoOrGif, setIsExportingVideoOrGif] = useState(false);
-
-  const [dictationLang, setDictationLang] = useState<'ar-SA' | 'fr-FR' | 'en-US'>('ar-SA');
-  const [transcriptSegments, setTranscriptSegments] = useState<
-    { time: string; speaker: string; text: string }[]
-  >([]);
-  const [isListeningMic, setIsListeningMic] = useState(false);
+  const modalDialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const resolvedLang: AppLanguage =
+    language === 'fr' || language === 'en' || language === 'es' || language === 'ar'
+      ? language
+      : 'ar';
 
   // ---------------- WORD, EXCEL, POWERPOINT, TEXT & NEW IMAGE STATES ----------------
   const [wordRawInput, setWordRawInput] = useState<string>('');
@@ -344,13 +333,6 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
       setAudioSpeed(1.0);
       setAudioPitchSemitones(0);
       setAudioGainDb(tool.id === 'volume-booster' ? 4.5 : 0);
-    } else if (tool.hub === 'video') {
-      setUploadedVideoName(null);
-      if (uploadedVideoElRef.current) {
-        uploadedVideoElRef.current.pause();
-        uploadedVideoElRef.current.removeAttribute('src');
-      }
-      setTranscriptSegments([]);
     } else if (tool.hub === 'text') {
       setSmartTextInput('');
       setSmartTextMode(
@@ -810,77 +792,50 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
     ctx.fillRect(Math.max(0, endX - 2), 0, 2, height);
   }, [tool, audioBuffer, trimStart, trimEnd, audioGainDb]);
 
-  // Render Video & AI Hub animated preview canvas
+  // Accessible focus trap & Escape handler for workspace modal
   useEffect(() => {
-    if (!tool || tool.hub !== 'video' || !videoPreviewCanvasRef.current) return;
-    const canvas = videoPreviewCanvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!tool) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const rafId = requestAnimationFrame(() => {
+      closeButtonRef.current?.focus();
+    });
 
-    let animId: number;
-    let frame = 0;
-
-    const renderLoop = () => {
-      frame++;
-      const w = canvas.width;
-      const h = canvas.height;
-
-      const vidEl = uploadedVideoElRef.current;
-      if (vidEl && uploadedVideoName && vidEl.readyState >= 2) {
-        ctx.drawImage(vidEl, 0, 0, w, h);
-      } else {
-        const grad = ctx.createLinearGradient(0, 0, w, h);
-        grad.addColorStop(0, '#0F172A');
-        grad.addColorStop(1, '#1E293B');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, w, h);
-
-        const cx = w / 2;
-        const cy = h / 2;
-        const pulse = Math.sin(frame * 0.08) * 24;
-
-        ctx.strokeStyle = '#10B981';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.arc(cx, cy, 55 + pulse, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.strokeStyle = '#8B5CF6';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(cx, cy, 85 - pulse * 0.6, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.fillStyle = '#F43F5E';
-        ctx.beginPath();
-        ctx.arc(
-          cx + Math.cos(frame * 0.06) * 70,
-          cy + Math.sin(frame * 0.06) * 70,
-          10,
-          0,
-          Math.PI * 2
-        );
-        ctx.fill();
+    const handleKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        onClose();
+        return;
       }
+      if (ev.key !== 'Tab' || !modalDialogRef.current) return;
 
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-      ctx.fillRect(12, 12, 310, 28);
-      ctx.fillStyle = '#F8FAFC';
-      ctx.font = '600 12px "JetBrains Mono", monospace';
-      ctx.fillText(
-        tool.id === 'video-compressor'
-          ? `TARGET: ${videoResolution} · CRF ${videoCrf}`
-          : `GIF89a: ${gifFps} FPS · ${gifWidth}px`,
-        20,
-        30
-      );
+      const focusable = Array.from(
+        modalDialogRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => el.offsetParent !== null || el === document.activeElement);
 
-      animId = requestAnimationFrame(renderLoop);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (ev.shiftKey) {
+        if (document.activeElement === first || !modalDialogRef.current.contains(document.activeElement)) {
+          ev.preventDefault();
+          last.focus();
+        }
+      } else if (document.activeElement === last) {
+        ev.preventDefault();
+        first.focus();
+      }
     };
 
-    animId = requestAnimationFrame(renderLoop);
-    return () => cancelAnimationFrame(animId);
-  }, [tool, videoResolution, videoCrf, gifFps, gifWidth, uploadedVideoName]);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      cancelAnimationFrame(rafId);
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus?.();
+    };
+  }, [tool, onClose]);
 
   if (!tool) return null;
 
@@ -1184,168 +1139,6 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
       tool.title,
       `Exported processed WAV (${(wavBlob.size / 1024).toFixed(1)} KB)`
     );
-  };
-
-  const handleVideoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !uploadedVideoElRef.current) return;
-    const url = URL.createObjectURL(file);
-    const vid = uploadedVideoElRef.current;
-    vid.src = url;
-    vid.loop = true;
-    vid.muted = true;
-    vid.play().catch(() => {});
-    setUploadedVideoName(file.name);
-  };
-
-  const handleToggleMicDictation = () => {
-    const SpeechRec =
-      (window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown })
-        .SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition;
-
-    if (!SpeechRec) {
-      setTranscriptSegments((prev) => [
-        ...prev,
-        {
-          time: '00:14.800 --> 00:19.400',
-          speaker: 'Live Mic',
-          text:
-            dictationLang === 'ar-SA'
-              ? 'تم تحويل الكلام إلى نص مباشرة داخل المتصفح عبر منصة ToolNova.'
-              : 'Transcribed new voice note directly inside the ToolNova client workspace.',
-        },
-      ]);
-      return;
-    }
-
-    if (isListeningMic) {
-      setIsListeningMic(false);
-      return;
-    }
-
-    setIsListeningMic(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const recognition = new (SpeechRec as any)();
-    recognition.lang = dictationLang;
-    recognition.interimResults = false;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognition.onresult = (event: any) => {
-      const text = event.results?.[0]?.[0]?.transcript;
-      if (text) {
-        setTranscriptSegments((prev) => [
-          ...prev,
-          {
-            time: '00:15.000 --> 00:20.000',
-            speaker: `Mic (${dictationLang})`,
-            text,
-          },
-        ]);
-      }
-      setIsListeningMic(false);
-    };
-    recognition.onerror = () => setIsListeningMic(false);
-    recognition.onend = () => setIsListeningMic(false);
-    recognition.start();
-  };
-
-  const handleDownloadTranscript = (format: 'srt' | 'md' | 'txt') => {
-    let content = '';
-    if (format === 'srt') {
-      content = transcriptSegments
-        .map((seg, i) => `${i + 1}\n${seg.time}\n[${seg.speaker}] ${seg.text}\n`)
-        .join('\n');
-    } else if (format === 'md') {
-      content =
-        `# ToolNova Audio/Video Transcript\n\n` +
-        transcriptSegments
-          .map((seg) => `- **${seg.time}** (*${seg.speaker}*): ${seg.text}`)
-          .join('\n');
-    } else {
-      content = transcriptSegments
-        .map((seg) => `[${seg.time}] ${seg.speaker}: ${seg.text}`)
-        .join('\n');
-    }
-
-    const blob = new Blob(['\uFEFF' + content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ToolNova_Transcript.${format}`;
-    a.click();
-    URL.revokeObjectURL(url);
-    onRecordHistory?.(tool.title, `Exported transcript as .${format.toUpperCase()}`);
-  };
-
-  const handleExportVideoOrGifAsset = async () => {
-    if (!videoPreviewCanvasRef.current) return;
-    setIsExportingVideoOrGif(true);
-
-    try {
-      if (tool.id === 'video-to-gif') {
-        const targetW = gifWidth;
-        const targetH = Math.round((gifWidth * 9) / 16);
-        const offCanvas = document.createElement('canvas');
-        offCanvas.width = targetW;
-        offCanvas.height = targetH;
-        const offCtx = offCanvas.getContext('2d')!;
-
-        const frames: ImageData[] = [];
-        const totalFramesToCapture = 14;
-
-        for (let i = 0; i < totalFramesToCapture; i++) {
-          await new Promise((r) => setTimeout(r, 45));
-          offCtx.drawImage(videoPreviewCanvasRef.current, 0, 0, targetW, targetH);
-          frames.push(offCtx.getImageData(0, 0, targetW, targetH));
-        }
-
-        const gifBlob = encodeFramesToAnimatedGif(frames, targetW, targetH, gifFps);
-        const url = URL.createObjectURL(gifBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `ToolNova_Animated_${gifWidth}p.gif`;
-        a.click();
-        URL.revokeObjectURL(url);
-        onRecordHistory?.(
-          tool.title,
-          `Encoded ${frames.length}-frame animated GIF (${(gifBlob.size / 1024).toFixed(1)} KB)`
-        );
-        return;
-      }
-
-      const canvas = videoPreviewCanvasRef.current;
-      if (typeof canvas.captureStream === 'function' && typeof MediaRecorder !== 'undefined') {
-        const stream = canvas.captureStream(24);
-        const targetBitrate = Math.max(250_000, (40 - videoCrf) * 80_000);
-        const recorder = new MediaRecorder(stream, {
-          videoBitsPerSecond: targetBitrate,
-        });
-        const chunks: BlobPart[] = [];
-        recorder.ondataavailable = (ev) => {
-          if (ev.data.size > 0) chunks.push(ev.data);
-        };
-        const stoppedPromise = new Promise<Blob>((resolve) => {
-          recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
-        });
-        recorder.start();
-        await new Promise((r) => setTimeout(r, 1500));
-        recorder.stop();
-        const webmBlob = await stoppedPromise;
-
-        const url = URL.createObjectURL(webmBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `ToolNova_Compressed_${videoResolution}_CRF${videoCrf}.webm`;
-        a.click();
-        URL.revokeObjectURL(url);
-        onRecordHistory?.(
-          tool.title,
-          `Compressed video stream to ${videoResolution} (${(webmBlob.size / 1024).toFixed(1)} KB)`
-        );
-      }
-    } finally {
-      setIsExportingVideoOrGif(false);
-    }
   };
 
   const pdfInputAccept =
@@ -1754,17 +1547,27 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 overflow-y-auto">
-      <video ref={uploadedVideoElRef} className="hidden" playsInline muted loop />
-
-      <div className="relative w-full max-w-5xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto">
+      <div
+        ref={modalDialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tool-workspace-modal-title"
+        className="relative w-full max-w-5xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden my-6 sm:my-8"
+      >
         {/* Top Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900">
-          <div className="flex items-center gap-3.5">
+        <div
+          dir={resolvedLang === 'ar' ? 'rtl' : 'ltr'}
+          className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
             <ToolBrandIcon tool={tool} size="lg" />
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2
+                  id="tool-workspace-modal-title"
+                  className="text-base sm:text-lg font-bold text-slate-900 dark:text-white"
+                >
                   {tool.title}
                 </h2>
                 <span className="text-xs text-slate-500 dark:text-slate-400">
@@ -1777,15 +1580,24 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
             </div>
           </div>
           <button
+            ref={closeButtonRef}
+            type="button"
             onClick={onClose}
-            className="p-2 rounded-lg text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-            aria-label="Close workspace"
+            className="min-h-[40px] min-w-[40px] p-2 rounded-lg text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center shrink-0"
+            aria-label={VIDEO_AI_STRINGS[resolvedLang].closeWorkspaceAria}
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Workspace Body */}
+        {tool.hub === 'video' ? (
+          <VideoAiWorkspace
+            tool={tool}
+            language={resolvedLang}
+            onRecordHistory={onRecordHistory}
+          />
+        ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[520px]">
           {/* LEFT / MAIN STAGE (7 cols) */}
           <div className="lg:col-span-7 p-6 bg-slate-50/50 dark:bg-slate-950/50 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between">
@@ -2182,136 +1994,6 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                     </span>
                   </div>
                 </div>
-                )}
-              </div>
-            )}
-
-            {/* VIDEO & AI STAGE */}
-            {tool.hub === 'video' && (
-              <div className="flex flex-col h-full gap-4">
-                {tool.id === 'speech-to-text' ? (
-                  <div className="flex flex-col h-full gap-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        Timestamped Transcript Editor
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={dictationLang}
-                          onChange={(e) =>
-                            setDictationLang(
-                              e.target.value as 'ar-SA' | 'fr-FR' | 'en-US'
-                            )
-                          }
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
-                        >
-                          <option value="ar-SA">العربية (ar-SA)</option>
-                          <option value="fr-FR">Français (fr-FR)</option>
-                          <option value="en-US">English (en-US)</option>
-                        </select>
-                        <button
-                          onClick={handleToggleMicDictation}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                            isListeningMic
-                              ? 'bg-rose-600 text-white'
-                              : 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                          }`}
-                        >
-                          <Mic className="w-3.5 h-3.5" />
-                          {isListeningMic ? 'Listening...' : 'Dictate Live'}
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3 overflow-y-auto max-h-[330px]">
-                      {transcriptSegments.length === 0 ? (
-                        <div className="h-full min-h-[250px] flex flex-col items-center justify-center p-6 text-center">
-                          <Mic className="w-10 h-10 text-rose-500/70 mb-2" />
-                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
-                            لا يوجد تفريغ صوتي بعد
-                          </p>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs">
-                            اضغط على &apos;Dictate Live&apos; أعلاه للتحدث بالميكروفون وتفريغ الصوت في الحال.
-                          </p>
-                        </div>
-                      ) : (
-                        transcriptSegments.map((seg, idx) => (
-                          <div
-                            key={idx}
-                            className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60"
-                          >
-                            <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400 mb-1">
-                              <span>{seg.time}</span>
-                              <span>{seg.speaker}</span>
-                            </div>
-                            <input
-                              type="text"
-                              value={seg.text}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setTranscriptSegments((prev) =>
-                                  prev.map((item, i) =>
-                                    i === idx ? { ...item, text: val } : item
-                                  )
-                                );
-                              }}
-                              className="w-full text-xs text-slate-900 dark:text-slate-100 bg-transparent focus:outline-none"
-                            />
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col h-full gap-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                        <Film className="w-3.5 h-3.5" />
-                        {uploadedVideoName
-                          ? `Video: ${uploadedVideoName}`
-                          : 'في انتظار رفع الفيديو (No video loaded)'}
-                      </span>
-                      <label className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition-colors">
-                        <Upload className="w-3.5 h-3.5" />
-                        Upload Video
-                        <input
-                          type="file"
-                          accept="video/*"
-                          onChange={handleVideoFileUpload}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                    <div className="flex-1 min-h-[280px] rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-950 flex items-center justify-center overflow-hidden">
-                      {uploadedVideoName ? (
-                        <canvas
-                          ref={videoPreviewCanvasRef}
-                          width={520}
-                          height={292}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex flex-col items-center justify-center p-6 text-center">
-                          <Film className="w-12 h-12 text-slate-700 mb-2.5" />
-                          <p className="text-sm font-bold text-slate-300 mb-1">
-                            لا يوجد مقطع فيديو مفتوح حالياً
-                          </p>
-                          <p className="text-xs text-slate-500 max-w-xs mb-3">
-                            ارفع ملف فيديو (MP4, WebM) للبدء في المعاينة وضغط الحجم أو استخراج صور GIF.
-                          </p>
-                          <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition-colors">
-                            <Upload className="w-4 h-4" />
-                            اختيار مقطع فيديو
-                            <input
-                              type="file"
-                              accept="video/*"
-                              onChange={handleVideoFileUpload}
-                              className="hidden"
-                            />
-                          </label>
-                        </div>
-                      )}
-                    </div>
-                  </div>
                 )}
               </div>
             )}
@@ -5169,118 +4851,6 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                 </div>
               )}
 
-              {/* VIDEO & AI HUB CONTROLS */}
-              {tool.hub === 'video' && (
-                <div className="space-y-4">
-                  {tool.id === 'video-compressor' && (
-                    <>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
-                          Target Output Resolution
-                        </label>
-                        <div className="grid grid-cols-3 gap-2">
-                          {(['1080p', '720p', '480p'] as const).map((res) => (
-                            <button
-                              key={res}
-                              onClick={() => setVideoResolution(res)}
-                              className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                                videoResolution === res
-                                  ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900'
-                                  : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-                              }`}
-                            >
-                              {res}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="text-slate-600 dark:text-slate-400">
-                            Constant Rate Factor (CRF Bitrate)
-                          </span>
-                          <span className="font-mono tabular-nums">
-                            CRF {videoCrf}
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min="18"
-                          max="36"
-                          value={videoCrf}
-                          onChange={(e) => setVideoCrf(Number(e.target.value))}
-                          className="w-full accent-slate-900 dark:accent-white"
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  {tool.id === 'video-to-gif' && (
-                    <>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
-                          Animated GIF Frame Rate
-                        </label>
-                        <div className="grid grid-cols-3 gap-2">
-                          {[8, 12, 20].map((fps) => (
-                            <button
-                              key={fps}
-                              onClick={() => setGifFps(fps)}
-                              className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                                gifFps === fps
-                                  ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900'
-                                  : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-                              }`}
-                            >
-                              {fps} FPS
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
-                          GIF Output Width
-                        </label>
-                        <div className="grid grid-cols-3 gap-2">
-                          {[280, 360, 480].map((w) => (
-                            <button
-                              key={w}
-                              onClick={() => setGifWidth(w)}
-                              className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                                gifWidth === w
-                                  ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900'
-                                  : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-                              }`}
-                            >
-                              {w}px
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  {tool.id === 'speech-to-text' && (
-                    <div className="space-y-3">
-                      <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                        Select your language (Arabic, French, or English), dictate via microphone or edit any timestamped segment on the left, then download as UTF-8 subtitles or Markdown:
-                      </p>
-                      <div className="grid grid-cols-3 gap-2 pt-2">
-                        {(['srt', 'md', 'txt'] as const).map((fmt) => (
-                          <button
-                            key={fmt}
-                            onClick={() => handleDownloadTranscript(fmt)}
-                            className="py-2.5 px-3 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:border-slate-900 dark:hover:border-white text-slate-900 dark:text-white flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                          >
-                            <Download className="w-3.5 h-3.5" />.{fmt.toUpperCase()}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* SHARED OFFICE PROTECTION & ACCESS LIMIT PANEL (WORD / EXCEL / POWERPOINT) */}
               {(tool.id === 'protect-word' ||
                 tool.id === 'protect-excel' ||
@@ -6026,31 +5596,10 @@ export const ToolWorkspaceModal: React.FC<ToolWorkspaceModalProps> = ({
                   Export Processed WAV Audio
                 </button>
               )}
-
-              {tool.hub === 'video' && tool.id !== 'speech-to-text' && (
-                <button
-                  onClick={handleExportVideoOrGifAsset}
-                  disabled={isExportingVideoOrGif}
-                  className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
-                >
-                  {isExportingVideoOrGif ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      Encoding Binary Stream...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      {tool.id === 'video-compressor'
-                        ? `Export Compressed ${videoResolution} Video (.WEBM)`
-                        : `Export Animated GIF (.GIF)`}
-                    </>
-                  )}
-                </button>
-              )}
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

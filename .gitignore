@@ -1,7 +1,20 @@
 node_modules
 dist
-.env
-.DS_Store
-.secure_storage
+dist-server
+coverage
+
+# Environment files
+.env*
+!.env.example
+
+# Sensitive database and storage files
+.protector_db.json
+.vault_quotas.json
+.secure_storage/
+*.enc
 .server_master_key.dev
 .master_key*
+
+# Logs & OS artifacts
+*.log
+.DS_Store

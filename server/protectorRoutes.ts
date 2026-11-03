@@ -144,11 +144,11 @@ protectorRouter.post(
       fileName: string;
       mimeType?: string;
       rawBuffer: Buffer;
-      password: any;
-      confirmPassword?: any;
-      maxOpens?: any;
-      expirationMs?: any;
-      expirationLabel?: any;
+      password: unknown;
+      confirmPassword?: unknown;
+      maxOpens?: unknown;
+      expirationMs?: unknown;
+      expirationLabel?: unknown;
       requestedOfflineMode?: boolean;
     }) => {
       const {
@@ -233,7 +233,9 @@ protectorRouter.post(
         return;
       }
 
-      if (confirmPassword !== undefined && password !== confirmPassword) {
+      const cleanPassword = String(password);
+
+      if (confirmPassword !== undefined && cleanPassword !== String(confirmPassword)) {
         res.status(400).json({
           ok: false,
           error: 'كلمة المرور وتأكيد كلمة المرور غير متطابقين.',
@@ -291,7 +293,7 @@ protectorRouter.post(
 
       // 1) Derive Argon2id password verification hash + user key material (runs in worker thread)
       const { passwordVerificationHash, userKeyMaterial } = await deriveArgon2idMaterialAsync(
-        password,
+        cleanPassword,
         argonSalt,
         {
           m: ARGON_MEM_KIB,
@@ -376,7 +378,7 @@ protectorRouter.post(
       if (isOfflineMode) {
         const viewerRepresentation = await buildSecureViewerPayload(rawBuffer, record);
         const webCryptoSalt = crypto.randomBytes(16);
-        const pbkdf2Key = crypto.pbkdf2Sync(password, webCryptoSalt, 600000, 32, 'sha256');
+        const pbkdf2Key = crypto.pbkdf2Sync(cleanPassword, webCryptoSalt, 600000, 32, 'sha256');
 
         const webFileKey = deriveHkdfSubkey(pbkdf2Key, webCryptoSalt, 'toolnova-offline-file', 32);
         const webViewerKey = deriveHkdfSubkey(pbkdf2Key, webCryptoSalt, 'toolnova-offline-viewer', 32);
@@ -449,8 +451,8 @@ protectorRouter.post(
         let mimeType = '';
         let password = '';
         let confirmPassword = '';
-        let maxOpens: any = null;
-        let expirationMs: any = null;
+        let maxOpens: string | number | null = null;
+        let expirationMs: string | number | null = null;
         let expirationLabel = '';
         let requestedOfflineMode = false;
         let fileChunks: Buffer[] = [];
@@ -511,7 +513,7 @@ protectorRouter.post(
               expirationLabel,
               requestedOfflineMode,
             });
-          } catch (err: any) {
+          } catch (err: unknown) {
             console.error('Multipart encryption error:', err);
             res.status(500).json({
               ok: false,
@@ -560,7 +562,7 @@ protectorRouter.post(
         expirationLabel,
         requestedOfflineMode,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('File Protector Encryption Error:', err);
       res.status(500).json({
         ok: false,
@@ -862,7 +864,7 @@ protectorRouter.post('/open', openLimiter, optionalAuth, async (req: Request, re
       viewerPayload,
       remainingOpens: slotResult.remainingOpens,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Viewer Payload Generation Error:', err);
     res.status(200).json({
       allowed: true,
@@ -1138,13 +1140,14 @@ protectorRouter.delete(
     }
 
     // 2. Erase cryptographic keys from database record
-    delete (record.cryptoMeta as any).wrappedDekHex;
-    delete (record.cryptoMeta as any).dekIvHex;
-    delete (record.cryptoMeta as any).dekAuthTagHex;
-    delete (record.cryptoMeta as any).fileIvHex;
-    delete (record.cryptoMeta as any).fileAuthTagHex;
-    delete (record.cryptoMeta as any).webFileCiphertextBase64;
-    delete (record.cryptoMeta as any).webViewerCiphertextBase64;
+    const cryptoMeta = record.cryptoMeta as Record<string, unknown>;
+    delete cryptoMeta.wrappedDekHex;
+    delete cryptoMeta.dekIvHex;
+    delete cryptoMeta.dekAuthTagHex;
+    delete cryptoMeta.fileIvHex;
+    delete cryptoMeta.fileAuthTagHex;
+    delete cryptoMeta.webFileCiphertextBase64;
+    delete cryptoMeta.webViewerCiphertextBase64;
 
     record.status = 'deleted';
     record.remainingOpens = 0;

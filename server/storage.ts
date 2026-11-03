@@ -205,7 +205,7 @@ export interface IProtectorRepository {
 class MemoryOrFileProtectorRepository implements IProtectorRepository {
   private db: Map<string, ProtectedFileRecord> = new Map();
   private auditLogs: Map<string, AuditLogEntry[]> = new Map();
-  private mutex: Promise<any> = Promise.resolve();
+  private mutex: Promise<void> = Promise.resolve();
 
   constructor() {
     this.loadFromDisk();
@@ -241,7 +241,7 @@ class MemoryOrFileProtectorRepository implements IProtectorRepository {
 
   private withLock<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.mutex.then(fn, fn);
-    this.mutex = next.catch(() => {});
+    this.mutex = next.then(() => {}, () => {});
     return next;
   }
 
@@ -378,7 +378,7 @@ class FirestoreProtectorRepository implements IProtectorRepository {
   }
 
   private isFirestoreHealthy(): boolean {
-    return Boolean(adminDb && typeof (adminDb as any).collection === 'function');
+    return Boolean(adminDb && typeof (adminDb as { collection?: unknown }).collection === 'function');
   }
 
   async get(fileId: string): Promise<ProtectedFileRecord | null> {
@@ -601,11 +601,11 @@ export function setProtectorRepositoryForTesting(repo: IProtectorRepository | nu
   activeRepository = repo || new FirestoreProtectorRepository();
 }
 
-let globalProtectorMutex: Promise<any> = Promise.resolve();
+let globalProtectorMutex: Promise<void> = Promise.resolve();
 
 export function withAtomicProtectorLock<T>(fn: () => Promise<T>): Promise<T> {
   const next = globalProtectorMutex.then(fn, fn);
-  globalProtectorMutex = next.catch(() => {});
+  globalProtectorMutex = next.then(() => {}, () => {});
   return next;
 }
 
