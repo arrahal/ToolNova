@@ -101,3 +101,18 @@ export const billingLimiter = rateLimit({
     'تم تجاوز الحد المسموح به لطلبات خدمة الفوترة.'
   ),
 });
+
+/**
+ * 7. Workflow Limiter
+ * 60 requests per 15 minutes per IP
+ */
+export const workflowLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  handler: createRateLimitHandler(
+    'تم تجاوز الحد المسموح به لطلبات مسارات العمل (60 طلباً كل 15 دقيقة). يرجى الانتظار قليلاً.'
+  ),
+});

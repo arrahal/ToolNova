@@ -2,8 +2,10 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Note: Default-deny applies implicitly in Firestore security rules.
-    // Any document path without an explicit matching allow rule is denied by default.
+    // Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
 
     // 1. Hardened Global Primitives
     function isValidId(id) {
@@ -100,61 +102,6 @@ service cloud.firestore {
       data.phone is string &&
       data.phone.size() >= 3 &&
       data.phone.size() <= 40 &&
-      data.createdAt is timestamp &&
-      data.updatedAt is timestamp;
-    }
-
-    function isValidWorkflow(data) {
-      return isSignedIn() &&
-      data.keys().hasAll([
-        'id',
-        'ownerId',
-        'name',
-        'description',
-        'steps',
-        'estimatedSavedSec',
-        'runsCount',
-        'createdAt',
-        'updatedAt'
-      ]) &&
-      data.keys().hasOnly([
-        'id',
-        'ownerId',
-        'name',
-        'description',
-        'steps',
-        'estimatedSavedSec',
-        'runsCount',
-        'createdAt',
-        'updatedAt'
-      ]) &&
-      data.id is string &&
-      data.id.size() >= 1 &&
-      data.id.size() <= 128 &&
-      data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
-      data.ownerId is string &&
-      data.ownerId.size() >= 1 &&
-      data.ownerId.size() <= 128 &&
-      data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
-      data.ownerId == request.auth.uid &&
-      data.name is string &&
-      data.name.size() >= 1 &&
-      data.name.size() <= 120 &&
-      data.description is string &&
-      data.description.size() >= 1 &&
-      data.description.size() <= 500 &&
-      data.steps is list &&
-      data.steps.size() >= 1 &&
-      data.steps.size() <= 10 &&
-      data.steps[0] is string &&
-      data.steps[0].size() >= 1 &&
-      data.steps[0].size() <= 64 &&
-      data.estimatedSavedSec is number &&
-      data.estimatedSavedSec >= 0 &&
-      data.estimatedSavedSec <= 86400 &&
-      data.runsCount is number &&
-      data.runsCount >= 0 &&
-      data.runsCount <= 1000000 &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
     }
@@ -279,45 +226,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Workflows: Steps capped at <= 10; owner only
+    // Processed Webhooks: Server-only idempotency store; NO client reads or writes permitted
+    match /processedWebhooks/{webhookId} {
+      allow read, write: if false;
+    }
+
+    // Workflows: Owner can read; NO client writes permitted (created, updated, and deleted exclusively via /api/workflows)
     match /workflows/{workflowId} {
       allow get: if isSignedIn() && isValidId(workflowId) && existing().ownerId == request.auth.uid;
 
       allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
 
-      allow create: if isVerifiedUser() &&
-        isValidId(workflowId) &&
-        isValidWorkflow(incoming()) &&
-        incoming().id == workflowId &&
-        incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        (
-          exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
-          existsAfter(/databases/$(database)/documents/users/$(request.auth.uid))
-        );
-
-      allow update: if isValidWorkflow(incoming()) &&
-        isVerifiedUser() &&
-        isValidId(workflowId) &&
-        existing().ownerId == request.auth.uid &&
-        incoming().id == existing().id &&
-        incoming().ownerId == existing().ownerId &&
-        incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time &&
-        (
-          // Action 1: Edit Workflow Definition
-          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'steps', 'estimatedSavedSec', 'updatedAt']) ||
-          // Action 2: Increment Workflow Run Counter
-          (
-            incoming().diff(existing()).affectedKeys().hasOnly(['runsCount', 'updatedAt']) &&
-            incoming().runsCount == existing().runsCount + 1
-          )
-        ) &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid));
-
-      allow delete: if isVerifiedUser() &&
-        isValidId(workflowId) &&
-        existing().ownerId == request.auth.uid;
+      allow create, update, delete: if false;
     }
 
     // Activity Logs: Append-only audit log; no updates permitted

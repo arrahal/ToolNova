@@ -1,7 +1,7 @@
 {
   "firestore": [
     {
-      "database": "ai-studio-toolnova-339d7e1e-b948-437e-94da-66fea2490075",
+      "database": "ai-studio-toolnova-5108839e-cf7e-436d-a08c-d644ea2f35ed",
       "rules": "firestore.rules"
     }
   ],

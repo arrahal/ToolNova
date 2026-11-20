@@ -21,7 +21,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 
-const PROJECT_ID = 'gen-lang-client-0209937761';
+const PROJECT_ID = 'platinum-canto-h1ttq';
 const RULES_PATH = path.resolve(process.cwd(), 'firestore.rules');
 
 describe('Firestore Security Rules Suite', () => {
@@ -44,7 +44,7 @@ describe('Firestore Security Rules Suite', () => {
       console.warn(
         '[Rules Test] Firestore Emulator not reachable on ' +
           host +
-          '. To run rules unit tests, execute: npm run test:rules'
+          '. To run live emulator rules tests, execute: npm run test:rules'
       );
       return;
     }
@@ -82,6 +82,36 @@ describe('Firestore Security Rules Suite', () => {
       email: `${uid}@example.com`,
     });
   };
+
+  it('Static Contract: firestore.rules blocks all client writes to /workflows while preserving owner-only get & list', () => {
+    const rulesSource = fs.readFileSync(RULES_PATH, 'utf8');
+
+    // Extract match /workflows/{workflowId} block
+    const wfMatch = rulesSource.match(/match\s+\/workflows\/\{workflowId\}\s*\{([\s\S]*?)\n\s*\}/);
+    expect(wfMatch).not.toBeNull();
+    const wfBlock = wfMatch![1];
+
+    // Client create, update, delete must be unconditionally false
+    expect(wfBlock).toMatch(/allow\s+create,\s*update,\s*delete:\s*if\s+false\s*;/);
+
+    // Owner read (get & list) must remain enforced
+    expect(wfBlock).toMatch(
+      /allow\s+get:\s*if\s+isSignedIn\(\)\s*&&\s*isValidId\(workflowId\)\s*&&\s*existing\(\)\.ownerId\s*==\s*request\.auth\.uid\s*;/
+    );
+    expect(wfBlock).toMatch(
+      /allow\s+list:\s*if\s+isSignedIn\(\)\s*&&\s*resource\.data\.ownerId\s*==\s*request\.auth\.uid\s*;/
+    );
+
+    // Legacy partial array check steps[0] must be completely removed
+    expect(rulesSource).not.toContain('steps[0]');
+
+    // Server-only processedWebhooks collection must block all client reads and writes
+    const pwMatch = rulesSource.match(
+      /match\s+\/processedWebhooks\/\{webhookId\}\s*\{([\s\S]*?)\n\s*\}/
+    );
+    expect(pwMatch).not.toBeNull();
+    expect(pwMatch![1]).toMatch(/allow\s+read,\s*write:\s*if\s+false\s*;/);
+  });
 
   it('Baseline: Verified user can create valid profile with planId: "free" and access private info', async () => {
     if (!emulatorAvailable || !testEnv) return;
@@ -233,7 +263,7 @@ describe('Firestore Security Rules Suite', () => {
     );
   });
 
-  it('Payload 6: Client Timestamp Forgery on Workflow returns PERMISSION_DENIED', async () => {
+  it('Payload 6: Direct Client Workflow Create Bypass (even valid payload by verified owner) returns PERMISSION_DENIED', async () => {
     if (!emulatorAvailable || !testEnv) return;
 
     // Seed parent user
@@ -253,22 +283,23 @@ describe('Firestore Security Rules Suite', () => {
     const ctx = getContext('user_A', true);
     const db = ctx.firestore();
 
+    // Direct client write must fail because workflows can only be created via /api/workflows
     await assertFails(
       setDoc(doc(db, 'workflows/wf_1'), {
         id: 'wf_1',
         ownerId: 'user_A',
-        name: 'Forged Workflow',
-        description: 'Past timestamp forgery',
-        steps: ['pdf-merge', 'pdf-protect'],
+        name: 'Client Bypass Attempt',
+        description: '',
+        steps: ['merge-pdf'],
         estimatedSavedSec: 45,
         runsCount: 0,
-        createdAt: Timestamp.fromDate(new Date('2020-01-01')), // Forged past timestamp
-        updatedAt: Timestamp.fromDate(new Date('2020-01-01')),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       })
     );
   });
 
-  it('Payload 7: Unbounded Array Exhaustion on Workflow (>10 steps) returns PERMISSION_DENIED', async () => {
+  it('Payload 7: Unbounded Array / Malicious Client Workflow Write (>10 steps) returns PERMISSION_DENIED', async () => {
     if (!emulatorAvailable || !testEnv) return;
 
     await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
@@ -293,7 +324,7 @@ describe('Firestore Security Rules Suite', () => {
         ownerId: 'user_A',
         name: 'Huge Workflow',
         description: '25 steps array exhaustion attempt',
-        steps: Array(25).fill('pdf-merge'), // 25 elements > max 10
+        steps: Array(25).fill('merge-pdf'),
         estimatedSavedSec: 45,
         runsCount: 0,
         createdAt: serverTimestamp(),
@@ -302,24 +333,13 @@ describe('Firestore Security Rules Suite', () => {
     );
   });
 
-  it('Payload 8: ID Poisoning Attack returns PERMISSION_DENIED', async () => {
+  it('Payload 8: ID Poisoning Attack on Workflow Read & Write returns PERMISSION_DENIED', async () => {
     if (!emulatorAvailable || !testEnv) return;
-
-    await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
-      await setDoc(doc(adminCtx.firestore(), 'users/user_A'), {
-        uid: 'user_A',
-        fullName: 'Alice',
-        companyOrRole: 'Engineer',
-        country: 'Morocco',
-        planId: 'free',
-        joinedAt: '2026-10-18',
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-      });
-    });
 
     const ctx = getContext('user_A', true);
     const db = ctx.firestore();
+
+    await assertFails(getDoc(doc(db, 'workflows/bad$id!@#')));
 
     await assertFails(
       setDoc(doc(db, 'workflows/bad$id!@#'), {
@@ -327,7 +347,7 @@ describe('Firestore Security Rules Suite', () => {
         ownerId: 'user_A',
         name: 'Malicious Path ID',
         description: 'Invalid chars in doc ID',
-        steps: ['pdf-merge', 'pdf-protect'],
+        steps: ['merge-pdf'],
         estimatedSavedSec: 45,
         runsCount: 0,
         createdAt: serverTimestamp(),
@@ -336,95 +356,101 @@ describe('Firestore Security Rules Suite', () => {
     );
   });
 
-  it('Payload 9: Update-Gap / Type Poisoning on Workflow returns PERMISSION_DENIED', async () => {
+  it('Payload 9: Direct Client Workflow Update Bypass returns PERMISSION_DENIED', async () => {
     if (!emulatorAvailable || !testEnv) return;
 
-    // Seed existing valid workflow
+    // Seed existing server-created workflow
     await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
       const adminDb = adminCtx.firestore();
-      await setDoc(doc(adminDb, 'users/user_A'), {
-        uid: 'user_A',
-        fullName: 'Alice',
-        companyOrRole: 'Engineer',
-        country: 'Morocco',
-        planId: 'free',
-        joinedAt: '2026-10-18',
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-      });
       await setDoc(doc(adminDb, 'workflows/wf_1'), {
         id: 'wf_1',
         ownerId: 'user_A',
         name: 'Standard Workflow',
         description: 'Standard description',
-        steps: ['pdf-merge', 'pdf-protect'],
+        steps: ['merge-pdf', 'compress-pdf'],
         estimatedSavedSec: 45,
         runsCount: 0,
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       });
     });
 
     const ctx = getContext('user_A', true);
     const db = ctx.firestore();
 
-    // Attempting to update name to 5,000 chars
+    // Even valid update fields by the verified owner must fail from the client SDK
     await assertFails(
       updateDoc(doc(db, 'workflows/wf_1'), {
-        name: 'X'.repeat(5000),
-        updatedAt: serverTimestamp(),
+        name: 'Updated Directly From Client',
+        updatedAt: Date.now(),
+      })
+    );
+
+    // Incrementing runsCount or mutating steps directly from client must also fail
+    await assertFails(
+      updateDoc(doc(db, 'workflows/wf_1'), {
+        runsCount: 1,
       })
     );
   });
 
-  it('Payload 10: Immutable Field Mutation on Workflow returns PERMISSION_DENIED', async () => {
+  it('Payload 10: Direct Client Workflow Delete Bypass & Cross-User Read return PERMISSION_DENIED', async () => {
     if (!emulatorAvailable || !testEnv) return;
 
     await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
       const adminDb = adminCtx.firestore();
-      await setDoc(doc(adminDb, 'users/user_A'), {
-        uid: 'user_A',
-        fullName: 'Alice',
-        companyOrRole: 'Engineer',
-        country: 'Morocco',
-        planId: 'free',
-        joinedAt: '2026-10-18',
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-      });
       await setDoc(doc(adminDb, 'workflows/wf_1'), {
         id: 'wf_1',
         ownerId: 'user_A',
         name: 'Standard Workflow',
-        description: 'Standard description',
-        steps: ['pdf-merge', 'pdf-protect'],
-        estimatedSavedSec: 45,
+        description: '',
+        steps: ['merge-pdf'],
+        estimatedSavedSec: 86400,
         runsCount: 0,
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       });
     });
 
-    const ctx = getContext('user_A', true);
-    const db = ctx.firestore();
+    const ctxA = getContext('user_A', true);
+    const dbA = ctxA.firestore();
 
-    // Attempting to mutate ownerId to user_B
-    await assertFails(
-      updateDoc(doc(db, 'workflows/wf_1'), {
-        ownerId: 'user_B',
-        updatedAt: serverTimestamp(),
-      })
-    );
+    // Owner cannot delete workflow directly from client SDK (must use DELETE /api/workflows/:id)
+    await assertFails(deleteDoc(doc(dbA, 'workflows/wf_1')));
+
+    // Non-owner user_B cannot read user_A's workflow
+    const ctxB = getContext('user_B', true);
+    const dbB = ctxB.firestore();
+    await assertFails(getDoc(doc(dbB, 'workflows/wf_1')));
   });
 
   it('Payload 11: Unauthorized List Scraping on Workflows returns PERMISSION_DENIED', async () => {
     if (!emulatorAvailable || !testEnv) return;
+
+    await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+      await setDoc(doc(adminCtx.firestore(), 'workflows/wf_a'), {
+        id: 'wf_a',
+        ownerId: 'user_A',
+        name: 'Alice Workflow',
+        description: '',
+        steps: ['merge-pdf'],
+        estimatedSavedSec: 22,
+        runsCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
 
     const ctxB = getContext('user_B', true);
     const dbB = ctxB.firestore();
 
     // Querying entire /workflows collection without filtering ownerId == user_B
     await assertFails(getDocs(collection(dbB, 'workflows')));
+
+    // Querying another user's workflows explicitly
+    await assertFails(
+      getDocs(query(collection(dbB, 'workflows'), where('ownerId', '==', 'user_A')))
+    );
   });
 
   it('Payload 12: Immutable Audit Log Tampering returns PERMISSION_DENIED', async () => {
@@ -454,7 +480,74 @@ describe('Firestore Security Rules Suite', () => {
   });
 
   /* -------------------------------------------------------------
-   * TASK 4 SPECIFIC ADDITIONS: Plan Integrity, Entitlements, Vault Removal
+   * WORKFLOWS: OWNER READ ALLOWED & SERVER-SEEDED UNIFIED BOUNDS
+   * ------------------------------------------------------------- */
+
+  it('Workflows: Owner can get and list their own server-created workflows (1-10 steps, 0-500 desc, 0-86400 sec), while unauthenticated and non-owners cannot', async () => {
+    if (!emulatorAvailable || !testEnv) return;
+
+    await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+      const adminDb = adminCtx.firestore();
+      await setDoc(doc(adminDb, 'workflows/wf_min_bounds'), {
+        id: 'wf_min_bounds',
+        ownerId: 'user_A',
+        name: 'Single Step Empty Desc',
+        description: '',
+        steps: ['merge-pdf'],
+        estimatedSavedSec: 0,
+        runsCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      await setDoc(doc(adminDb, 'workflows/wf_max_bounds'), {
+        id: 'wf_max_bounds',
+        ownerId: 'user_A',
+        name: 'Ten Steps Max Saved Sec',
+        description: 'D'.repeat(500),
+        steps: Array(10).fill('compress-pdf'),
+        estimatedSavedSec: 86400,
+        runsCount: 5,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      await setDoc(doc(adminDb, 'workflows/wf_other_user'), {
+        id: 'wf_other_user',
+        ownerId: 'user_B',
+        name: 'Bob Workflow',
+        description: 'Owned by user_B',
+        steps: ['split-pdf'],
+        estimatedSavedSec: 30,
+        runsCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    // Owner user_A can get and list their own workflows
+    const ctxA = getContext('user_A', true);
+    const dbA = ctxA.firestore();
+
+    await assertSucceeds(getDoc(doc(dbA, 'workflows/wf_min_bounds')));
+    await assertSucceeds(getDoc(doc(dbA, 'workflows/wf_max_bounds')));
+
+    const listSnap = await assertSucceeds(
+      getDocs(query(collection(dbA, 'workflows'), where('ownerId', '==', 'user_A')))
+    );
+    expect(listSnap.size).toBe(2);
+
+    // Owner user_A cannot read user_B's workflow
+    await assertFails(getDoc(doc(dbA, 'workflows/wf_other_user')));
+
+    // Unauthenticated client cannot read or list workflows
+    const unauthDb = getContext().firestore();
+    await assertFails(getDoc(doc(unauthDb, 'workflows/wf_min_bounds')));
+    await assertFails(
+      getDocs(query(collection(unauthDb, 'workflows'), where('ownerId', '==', 'user_A')))
+    );
+  });
+
+  /* -------------------------------------------------------------
+   * PLAN INTEGRITY, ENTITLEMENTS, LEGACY VAULT REMOVAL
    * ------------------------------------------------------------- */
 
   it('Task 4 - Plan Integrity: User cannot set planId to "pro" or "business" on create', async () => {
@@ -607,5 +700,36 @@ describe('Firestore Security Rules Suite', () => {
         passwordHash: 'injected_hash',
       })
     );
+  });
+
+  it('Task 2 - Processed Webhooks: All client reads and writes to /processedWebhooks are blocked', async () => {
+    if (!emulatorAvailable || !testEnv) return;
+
+    await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+      await setDoc(doc(adminCtx.firestore(), 'processedWebhooks/wh_1'), {
+        eventId: 'ls_wh_1',
+        eventName: 'order_created',
+        uid: 'user_A',
+        processedAt: Date.now(),
+      });
+    });
+
+    const ctxA = getContext('user_A', true);
+    const dbA = ctxA.firestore();
+    const unauthDb = getContext().firestore();
+
+    await assertFails(getDoc(doc(dbA, 'processedWebhooks/wh_1')));
+    await assertFails(getDocs(collection(dbA, 'processedWebhooks')));
+    await assertFails(
+      setDoc(doc(dbA, 'processedWebhooks/wh_2'), {
+        eventId: 'ls_wh_2',
+        eventName: 'order_created',
+        uid: 'user_A',
+        processedAt: Date.now(),
+      })
+    );
+    await assertFails(updateDoc(doc(dbA, 'processedWebhooks/wh_1'), { uid: 'user_B' }));
+    await assertFails(deleteDoc(doc(dbA, 'processedWebhooks/wh_1')));
+    await assertFails(getDoc(doc(unauthDb, 'processedWebhooks/wh_1')));
   });
 });

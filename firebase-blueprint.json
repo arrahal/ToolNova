@@ -110,12 +110,12 @@
     },
     "Workflow": {
       "title": "Workflow",
-      "description": "Custom multi-step media processing workflow saved by a user.",
+      "description": "Custom multi-step media processing workflow managed on the server via /api/workflows.",
       "type": "object",
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique workflow identifier",
+          "description": "Server-generated unique workflow identifier",
           "minLength": 1,
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$"
@@ -129,37 +129,35 @@
         },
         "name": {
           "type": "string",
-          "description": "Workflow display title",
+          "description": "Workflow display title (1 to 120 characters)",
           "minLength": 1,
           "maxLength": 120
         },
         "description": {
           "type": "string",
-          "description": "Summary of what the pipeline automates",
-          "minLength": 1,
-          "maxLength": 400
+          "description": "Optional summary of what the pipeline automates (0 to 500 characters)",
+          "minLength": 0,
+          "maxLength": 500
         },
         "steps": {
           "type": "array",
-          "description": "Ordered list of tool IDs (bounded to max 10 steps)"
+          "description": "Ordered list of tool IDs (bounded to 1 to 10 steps, each 1-64 chars matching ^[a-zA-Z0-9_\\-]+$)"
         },
         "estimatedSavedSec": {
           "type": "number",
-          "description": "Estimated seconds saved per run"
+          "description": "Estimated seconds saved per run (0 to 86400)"
         },
         "runsCount": {
           "type": "number",
           "description": "Total number of times executed"
         },
         "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server timestamp of creation"
+          "type": "number",
+          "description": "Server epoch timestamp in milliseconds of creation"
         },
         "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server timestamp of last update"
+          "type": "number",
+          "description": "Server epoch timestamp in milliseconds of last update"
         }
       },
       "required": [
@@ -226,79 +224,85 @@
         "createdAt"
       ]
     },
-    "DocumentAccessToken": {
-      "title": "DocumentAccessToken",
-      "description": "Access control and viewer quota record for protected Word, Excel, and PowerPoint files.",
+    "Entitlement": {
+      "title": "Entitlement",
+      "description": "Server-managed subscription entitlement record for a user.",
       "type": "object",
       "properties": {
-        "id": {
+        "uid": {
           "type": "string",
-          "description": "Unique token identifier",
+          "description": "Firebase Auth UID of the user",
           "minLength": 1,
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$"
         },
-        "ownerId": {
+        "planId": {
           "type": "string",
-          "description": "Firebase Auth UID of the document owner",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "fileName": {
-          "type": "string",
-          "description": "Name of the protected Office document",
-          "minLength": 1,
-          "maxLength": 180
-        },
-        "docType": {
-          "type": "string",
-          "description": "Office document category",
-          "enum": ["word", "excel", "powerpoint"],
+          "description": "Active subscription tier",
+          "enum": ["free", "pro", "enterprise"],
           "maxLength": 20
         },
-        "passwordHash": {
+        "status": {
           "type": "string",
-          "description": "Hash of the document access password",
-          "minLength": 4,
-          "maxLength": 128
+          "description": "Subscription lifecycle status",
+          "enum": ["active", "cancelled", "expired", "past_due"],
+          "maxLength": 20
         },
-        "maxAllowedUsers": {
+        "variantId": {
+          "type": "string",
+          "description": "Mapped billing provider variant identifier",
+          "maxLength": 64
+        },
+        "endsAt": {
           "type": "number",
-          "description": "Maximum number of people allowed to open the document"
-        },
-        "usedCount": {
-          "type": "number",
-          "description": "Current number of people who have accessed the document"
-        },
-        "lockEditingMode": {
-          "type": "string",
-          "description": "Editing restriction policy",
-          "enum": ["full-lock", "read-only-watermark", "form-comments-only"],
-          "maxLength": 32
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server timestamp when the protection token was created"
+          "description": "Optional epoch timestamp in milliseconds when a cancelled subscription ends"
         },
         "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server timestamp when the protection token was last updated"
+          "type": "number",
+          "description": "Epoch timestamp in milliseconds of last server update"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Epoch timestamp in milliseconds when entitlement was created"
         }
       },
       "required": [
-        "id",
-        "ownerId",
-        "fileName",
-        "docType",
-        "passwordHash",
-        "maxAllowedUsers",
-        "usedCount",
-        "lockEditingMode",
-        "createdAt",
-        "updatedAt"
+        "uid",
+        "planId",
+        "status",
+        "updatedAt",
+        "createdAt"
+      ]
+    },
+    "ProcessedWebhook": {
+      "title": "ProcessedWebhook",
+      "description": "Server-only idempotency record for processed billing webhook events.",
+      "type": "object",
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "description": "Webhook ID or SHA-256 digest of raw payload",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "eventName": {
+          "type": "string",
+          "description": "Billing webhook event name",
+          "maxLength": 80
+        },
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID affected by the webhook",
+          "maxLength": 128
+        },
+        "processedAt": {
+          "type": "number",
+          "description": "Epoch timestamp in milliseconds when event was claimed"
+        }
+      },
+      "required": [
+        "eventId",
+        "processedAt"
       ]
     }
   },
@@ -315,11 +319,17 @@
       },
       "description": "Stores isolated PII (email and phone) accessible strictly by the document owner."
     },
+    "/entitlements/{userId}": {
+      "schema": {
+        "$ref": "#/entities/Entitlement"
+      },
+      "description": "Stores server-managed billing entitlements readable only by the user and writable exclusively by Firebase Admin."
+    },
     "/workflows/{workflowId}": {
       "schema": {
         "$ref": "#/entities/Workflow"
       },
-      "description": "Stores custom user-created multi-step media workflows."
+      "description": "Stores custom user-created multi-step media workflows readable only by the owner and writable exclusively by the server via /api/workflows."
     },
     "/activityLogs/{logId}": {
       "schema": {
@@ -327,11 +337,11 @@
       },
       "description": "Stores per-user tool execution history logs."
     },
-    "/documentAccessTokens/{tokenId}": {
+    "/processedWebhooks/{webhookId}": {
       "schema": {
-        "$ref": "#/entities/DocumentAccessToken"
+        "$ref": "#/entities/ProcessedWebhook"
       },
-      "description": "Stores password hashes and maximum allowed viewer quotas for protected Word, Excel, and PowerPoint files."
+      "description": "Server-only billing webhook idempotency ledger with all client reads and writes denied."
     }
   }
 }

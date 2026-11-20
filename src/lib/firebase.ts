@@ -9,6 +9,8 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore,
+  initializeFirestore,
+  Firestore,
   doc,
   getDoc,
   getDocFromServer,
@@ -26,24 +28,81 @@ import firebaseAppletConfig from '../../firebase-applet-config.json';
 import { UserProfileData } from '../components/AuthAccountModal';
 import { WorkflowPreset } from '../data/toolsData';
 
+function resolveConfigValue(envVal: unknown, fallback: string | undefined): string {
+  if (typeof envVal === 'string') {
+    const trimmed = envVal.trim();
+    if (
+      trimmed.length > 0 &&
+      trimmed !== 'undefined' &&
+      trimmed !== 'null' &&
+      !trimmed.startsWith('YOUR_') &&
+      trimmed !== 'remixed-project-id'
+    ) {
+      return trimmed;
+    }
+  }
+  return (fallback || '').trim();
+}
+
+const resolvedProjectId = resolveConfigValue(
+  import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  firebaseAppletConfig.projectId
+);
+
+const appletDatabaseId = (firebaseAppletConfig as { firestoreDatabaseId?: string })
+  .firestoreDatabaseId;
+
+const resolvedDatabaseId =
+  resolveConfigValue(
+    import.meta.env.VITE_FIREBASE_DATABASE_ID,
+    resolvedProjectId === firebaseAppletConfig.projectId ? appletDatabaseId : undefined
+  ) || undefined;
+
 // 1. Unified Firebase Configuration
 // Reads from environment variables with firebase-applet-config.json as default.
 // No hardcoded placeholder keys.
 export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseAppletConfig.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseAppletConfig.authDomain,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseAppletConfig.projectId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseAppletConfig.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseAppletConfig.messagingSenderId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseAppletConfig.appId,
-  firestoreDatabaseId:
-    import.meta.env.VITE_FIREBASE_DATABASE_ID ||
-    (firebaseAppletConfig as { firestoreDatabaseId?: string }).firestoreDatabaseId,
+  apiKey: resolveConfigValue(import.meta.env.VITE_FIREBASE_API_KEY, firebaseAppletConfig.apiKey),
+  authDomain: resolveConfigValue(
+    import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    firebaseAppletConfig.authDomain
+  ),
+  projectId: resolvedProjectId,
+  storageBucket: resolveConfigValue(
+    import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    firebaseAppletConfig.storageBucket
+  ),
+  messagingSenderId: resolveConfigValue(
+    import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    firebaseAppletConfig.messagingSenderId
+  ),
+  appId: resolveConfigValue(import.meta.env.VITE_FIREBASE_APP_ID, firebaseAppletConfig.appId),
+  firestoreDatabaseId: resolvedDatabaseId,
 };
 
-// 2. Single Firebase App Initialization Instance
+// 2. Single Firebase App & Firestore Initialization Instance
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+function createFirestoreInstance(): Firestore {
+  if (typeof window !== 'undefined') {
+    try {
+      // Force HTTP long-polling in browser/iframe environments so cross-origin preview iframes,
+      // proxies, or privacy shields blocking WebChannel streams do not mark the client offline.
+      return initializeFirestore(
+        app,
+        { experimentalForceLongPolling: true },
+        firebaseConfig.firestoreDatabaseId
+      );
+    } catch {
+      // Instance already initialized (e.g., HMR reload)
+    }
+  }
+  return firebaseConfig.firestoreDatabaseId
+    ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+    : getFirestore(app);
+}
+
+export const db: Firestore = createFirestoreInstance();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -133,13 +192,36 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Optional connection check in dev
-if (typeof window !== 'undefined' && import.meta.env.DEV) {
-  getDocFromServer(doc(db, 'test', 'connection')).catch((error) => {
+async function testConnection(): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    window.addEventListener('online', () => void testConnection(), { once: true });
+    return;
+  }
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (retryError) {
+        if (
+          retryError instanceof Error &&
+          retryError.message.includes('the client is offline') &&
+          (typeof navigator === 'undefined' || navigator.onLine !== false)
+        ) {
+          console.error('Please check your Firebase configuration.');
+        }
+      }
     }
-  });
+  }
+}
+
+if (typeof window !== 'undefined' && !import.meta.env.VITEST) {
+  void testConnection();
 }
 
 function sanitizeId(raw: string): string {
@@ -320,38 +402,188 @@ export async function updateUserPlanInFirestore(
   );
 }
 
-// 7. Workflows & Activity Logs
-export async function saveWorkflowToFirestore(
-  uid: string,
-  wf: WorkflowPreset
-): Promise<void> {
-  const cleanUid = sanitizeId(uid);
-  const cleanWfId = sanitizeId(wf.id);
-  const wfRef = doc(db, 'workflows', cleanWfId);
+// 7. Workflows (Server-Mediated via /api/workflows) & Activity Logs
+export const WORKFLOW_VALIDATION_LIMITS = {
+  MIN_NAME_LENGTH: 1,
+  MAX_NAME_LENGTH: 120,
+  MIN_DESCRIPTION_LENGTH: 0,
+  MAX_DESCRIPTION_LENGTH: 500,
+  MIN_STEPS: 1,
+  MAX_STEPS: 10,
+  MIN_ESTIMATED_SAVED_SEC: 0,
+  MAX_ESTIMATED_SAVED_SEC: 86400,
+} as const;
 
-  const boundedSteps = (wf.steps || [])
-    .slice(0, 10)
-    .map((s) => clampString(String(s), 1, 64, 'pdf-merge'));
-  while (boundedSteps.length < 2) {
-    boundedSteps.push('pdf-merge');
+export interface WorkflowMutationInput {
+  name: string;
+  description: string;
+  steps: string[];
+  estimatedSavedSec?: number;
+}
+
+async function getVerifiedAuthToken(): Promise<string> {
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error('يجب تسجيل الدخول بحساب موثق لإدارة مسارات العمل.');
+  }
+  return user.getIdToken();
+}
+
+function normalizeWorkflowApiPayload(input: WorkflowMutationInput): {
+  name: string;
+  description: string;
+  steps: string[];
+  estimatedSavedSec: number;
+} {
+  const cleanName = (input.name || '').trim();
+  if (
+    cleanName.length < WORKFLOW_VALIDATION_LIMITS.MIN_NAME_LENGTH ||
+    cleanName.length > WORKFLOW_VALIDATION_LIMITS.MAX_NAME_LENGTH
+  ) {
+    throw new Error('اسم مسار العمل يجب أن يكون بين 1 و 120 حرفاً.');
   }
 
-  const payload = {
-    id: cleanWfId,
-    ownerId: cleanUid,
-    name: clampString(wf.name, 1, 120, 'Custom Workflow'),
-    description: clampString(wf.description, 1, 400, 'Automated multi-step workflow'),
-    steps: boundedSteps,
-    estimatedSavedSec: Math.max(0, Math.min(86400, Number(wf.estimatedSavedSec) || 45)),
-    runsCount: Math.max(0, Math.min(1000000, Number(wf.runsCount) || 0)),
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+  const cleanDescription = (input.description ?? '').trim();
+  if (cleanDescription.length > WORKFLOW_VALIDATION_LIMITS.MAX_DESCRIPTION_LENGTH) {
+    throw new Error('وصف مسار العمل يجب ألا يتجاوز 500 حرف.');
+  }
+
+  if (
+    !Array.isArray(input.steps) ||
+    input.steps.length < WORKFLOW_VALIDATION_LIMITS.MIN_STEPS ||
+    input.steps.length > WORKFLOW_VALIDATION_LIMITS.MAX_STEPS
+  ) {
+    throw new Error('يجب أن يحتوي مسار العمل على ما بين 1 و 10 خطوات.');
+  }
+
+  const cleanSteps = input.steps.map((s) => String(s).trim());
+  for (const stepId of cleanSteps) {
+    if (stepId.length < 1 || stepId.length > 64 || !/^[a-zA-Z0-9_\-]+$/.test(stepId)) {
+      throw new Error('معرّف إحدى خطوات مسار العمل غير صالح.');
+    }
+  }
+
+  const rawEstimated =
+    input.estimatedSavedSec === undefined
+      ? cleanSteps.length * 22
+      : Number(input.estimatedSavedSec);
+  if (
+    !Number.isFinite(rawEstimated) ||
+    rawEstimated < WORKFLOW_VALIDATION_LIMITS.MIN_ESTIMATED_SAVED_SEC ||
+    rawEstimated > WORKFLOW_VALIDATION_LIMITS.MAX_ESTIMATED_SAVED_SEC
+  ) {
+    throw new Error('قيمة الوقت المقدر الموفر يجب أن تكون بين 0 و 86400 ثانية.');
+  }
+
+  return {
+    name: cleanName,
+    description: cleanDescription,
+    steps: cleanSteps,
+    estimatedSavedSec: Math.round(rawEstimated),
+  };
+}
+
+export async function createWorkflowViaApi(
+  input: WorkflowMutationInput
+): Promise<WorkflowPreset> {
+  const token = await getVerifiedAuthToken();
+  const payload = normalizeWorkflowApiPayload(input);
+
+  const res = await fetch('/api/workflows', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    workflow?: WorkflowPreset;
   };
 
-  try {
-    await setDoc(wfRef, payload);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, `workflows/${cleanWfId}`);
+  if (!res.ok || !body.workflow) {
+    throw new Error(body.error || 'فشل إنشاء مسار العمل عبر الخادم.');
+  }
+
+  return {
+    id: String(body.workflow.id),
+    name: String(body.workflow.name),
+    description: String(body.workflow.description ?? ''),
+    steps: Array.isArray(body.workflow.steps) ? body.workflow.steps.map(String) : payload.steps,
+    estimatedSavedSec:
+      typeof body.workflow.estimatedSavedSec === 'number'
+        ? body.workflow.estimatedSavedSec
+        : payload.estimatedSavedSec,
+    runsCount: typeof body.workflow.runsCount === 'number' ? body.workflow.runsCount : 0,
+  };
+}
+
+export async function updateWorkflowViaApi(
+  workflowId: string,
+  input: WorkflowMutationInput
+): Promise<WorkflowPreset> {
+  const cleanId = workflowId.trim();
+  if (!cleanId || cleanId.length > 128 || !/^[a-zA-Z0-9_\-]+$/.test(cleanId)) {
+    throw new Error('معرّف مسار العمل غير صالح.');
+  }
+
+  const token = await getVerifiedAuthToken();
+  const payload = normalizeWorkflowApiPayload(input);
+
+  const res = await fetch(`/api/workflows/${encodeURIComponent(cleanId)}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    workflow?: Partial<WorkflowPreset>;
+  };
+
+  if (!res.ok) {
+    throw new Error(body.error || 'فشل تعديل مسار العمل عبر الخادم.');
+  }
+
+  return {
+    id: cleanId,
+    name: String(body.workflow?.name ?? payload.name),
+    description: String(body.workflow?.description ?? payload.description),
+    steps: Array.isArray(body.workflow?.steps)
+      ? body.workflow.steps.map(String)
+      : payload.steps,
+    estimatedSavedSec:
+      typeof body.workflow?.estimatedSavedSec === 'number'
+        ? body.workflow.estimatedSavedSec
+        : payload.estimatedSavedSec,
+    runsCount: typeof body.workflow?.runsCount === 'number' ? body.workflow.runsCount : 0,
+  };
+}
+
+export async function deleteWorkflowViaApi(workflowId: string): Promise<void> {
+  const cleanId = workflowId.trim();
+  if (!cleanId || cleanId.length > 128 || !/^[a-zA-Z0-9_\-]+$/.test(cleanId)) {
+    throw new Error('معرّف مسار العمل غير صالح.');
+  }
+
+  const token = await getVerifiedAuthToken();
+  const res = await fetch(`/api/workflows/${encodeURIComponent(cleanId)}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  if (!res.ok) {
+    throw new Error(body.error || 'فشل حذف مسار العمل عبر الخادم.');
   }
 }
 
@@ -397,10 +629,14 @@ export function subscribeToUserWorkspace(
         items.push({
           id: String(d.id || docSnap.id),
           name: String(d.name || 'Custom Workflow'),
-          description: String(d.description || ''),
-          steps: Array.isArray(d.steps) ? d.steps.map(String) : ['pdf-merge', 'pdf-protect'],
-          estimatedSavedSec: Number(d.estimatedSavedSec) || 45,
-          runsCount: Number(d.runsCount) || 1,
+          description: String(d.description ?? ''),
+          steps:
+            Array.isArray(d.steps) && d.steps.length > 0
+              ? d.steps.map(String)
+              : ['merge-pdf'],
+          estimatedSavedSec:
+            typeof d.estimatedSavedSec === 'number' ? d.estimatedSavedSec : 45,
+          runsCount: typeof d.runsCount === 'number' ? d.runsCount : 0,
         });
       });
       onWorkflows(items);

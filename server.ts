@@ -5,7 +5,7 @@ import { PORT, NODE_ENV, PROJECT_ROOT, ALLOWED_ORIGINS } from './server/config';
 import { protectorRouter } from './server/protectorRoutes';
 import { billingRouter } from './server/billingRoutes';
 import { workflowRouter } from './server/workflowRoutes';
-import { billingLimiter } from './server/rateLimiters';
+import { billingLimiter, workflowLimiter } from './server/rateLimiters';
 
 export interface RequestWithRawBody extends Request {
   rawBody?: Buffer;
@@ -52,9 +52,11 @@ export function createExpressApp(): express.Express {
             objectSrc: ["'none'"],
             baseUri: ["'none'"],
             frameAncestors: ["'self'"],
-            scriptSrc: ["'self'", "'wasm-unsafe-eval'", 'blob:'],
+            frameSrc: ["'self'", 'https://*.firebaseapp.com', 'https://accounts.google.com'],
+            scriptSrc: ["'self'", "'wasm-unsafe-eval'", 'blob:', 'https://apis.google.com'],
             workerSrc: ["'self'", 'blob:'],
-            styleSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+            fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
             imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
             mediaSrc: ["'self'", 'data:', 'blob:'],
             connectSrc: [
@@ -63,6 +65,7 @@ export function createExpressApp(): express.Express {
               'data:',
               'https://*.googleapis.com',
               'https://*.firebaseio.com',
+              'https://*.firebaseapp.com',
               'https://huggingface.co',
               'https://*.huggingface.co',
               'https://*.hf.co',
@@ -72,6 +75,7 @@ export function createExpressApp(): express.Express {
           },
         },
         crossOriginEmbedderPolicy: false,
+        crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
         hsts: {
           maxAge: 31536000,
           includeSubDomains: true,
@@ -85,6 +89,7 @@ export function createExpressApp(): express.Express {
       helmet({
         contentSecurityPolicy: false,
         crossOriginEmbedderPolicy: false,
+        crossOriginOpenerPolicy: false,
         hsts: false,
       })
     );
@@ -108,10 +113,12 @@ export function createExpressApp(): express.Express {
       }
     }
 
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    if (isProd || !process.env.CSP_HEADER_VALUE) {
+      res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    }
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
 
     if (req.method === 'OPTIONS') {
@@ -160,7 +167,7 @@ export function createExpressApp(): express.Express {
   // 5. Mount API routers with per-route rate limiters (Requirements 2)
   app.use('/api/protector', protectorRouter);
   app.use('/api/billing', billingLimiter, billingRouter);
-  app.use('/api/workflows', workflowRouter);
+  app.use('/api/workflows', workflowLimiter, workflowRouter);
 
   // 6. Final Global Error Handler: Never leak stack traces or file system paths (Requirement 9)
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

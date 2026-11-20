@@ -1,8 +1,157 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+import crypto from 'crypto';
 import express from 'express';
 import { AddressInfo } from 'net';
 import JSZip from 'jszip';
+import type { EntitlementRecord, EntitlementStatus, PlanTier } from '../server/firebaseAdmin';
+
+const { testWebhookSecret, mockWorkflowsMap, mockEntitlementsMap, mockProcessedWebhooksMap } =
+  vi.hoisted(() => {
+    const secret =
+      process.env.LEMONSQUEEZY_WEBHOOK_SECRET || 'test_lemonsqueezy_webhook_secret_2026';
+    process.env.LEMONSQUEEZY_WEBHOOK_SECRET = secret;
+    process.env.LEMONSQUEEZY_PRO_VARIANT_IDS = 'var_pro_1,var_pro_2';
+    process.env.LEMONSQUEEZY_ENTERPRISE_VARIANT_IDS = 'var_ent_1';
+    return {
+      testWebhookSecret: secret,
+      mockWorkflowsMap: new Map<string, Record<string, unknown>>(),
+      mockEntitlementsMap: new Map<string, Record<string, unknown>>(),
+      mockProcessedWebhooksMap: new Map<string, Record<string, unknown>>(),
+    };
+  });
+
+vi.mock('../server/firebaseAdmin', async () => {
+  const actual = await vi.importActual<typeof import('../server/firebaseAdmin')>(
+    '../server/firebaseAdmin'
+  );
+
+  const mockAdminDb = {
+    collection: (name: string) => {
+      if (name !== 'workflows' && name !== 'entitlements' && name !== 'processedWebhooks') {
+        throw new Error(`Firestore collection '${name}' not mocked in unit test; use local repository`);
+      }
+      const store =
+        name === 'workflows'
+          ? mockWorkflowsMap
+          : name === 'entitlements'
+          ? mockEntitlementsMap
+          : mockProcessedWebhooksMap;
+      return {
+        where: (field: string, op: string, value: unknown) => ({
+          get: async () => {
+            const matched: Record<string, unknown>[] = [];
+            for (const item of store.values()) {
+              if (op === '==' && item[field] === value) {
+                matched.push(item);
+              }
+            }
+            return {
+              size: matched.length,
+              docs: matched.map((d) => ({ id: String(d.id || ''), data: () => ({ ...d }) })),
+            };
+          },
+        }),
+        doc: (docId: string) => ({
+          get: async () => {
+            const existing = store.get(docId);
+            return {
+              exists: Boolean(existing),
+              id: docId,
+              data: () => (existing ? { ...existing } : undefined),
+            };
+          },
+          create: async (data: Record<string, unknown>) => {
+            if (store.has(docId)) {
+              const err = new Error('ALREADY_EXISTS') as Error & { code: number };
+              err.code = 6;
+              throw err;
+            }
+            store.set(docId, { ...data });
+          },
+          set: async (data: Record<string, unknown>, options?: { merge?: boolean }) => {
+            const prev = options?.merge ? store.get(docId) || {} : {};
+            store.set(docId, { ...prev, ...data });
+          },
+          update: async (updates: Record<string, unknown>) => {
+            const prev = store.get(docId);
+            if (!prev) {
+              const err = new Error('NOT_FOUND') as Error & { code: number };
+              err.code = 5;
+              throw err;
+            }
+            store.set(docId, { ...prev, ...updates });
+          },
+          delete: async () => {
+            store.delete(docId);
+          },
+        }),
+      };
+    },
+  };
+
+  return {
+    ...actual,
+    adminDb: mockAdminDb,
+    getUserEntitlement: async (uid: string) => {
+      const rec = mockEntitlementsMap.get(uid) as Partial<EntitlementRecord> | undefined;
+      return actual.resolveEffectiveEntitlement(uid, rec);
+    },
+    setUserEntitlement: async (
+      uid: string,
+      record: {
+        planId: PlanTier;
+        status: EntitlementStatus;
+        provider?: string;
+        subscriptionId?: string;
+        customerId?: string;
+        variantId?: string;
+        endsAt?: number | null;
+      }
+    ) => {
+      const now = Date.now();
+      const prev = mockEntitlementsMap.get(uid) || {};
+      mockEntitlementsMap.set(uid, {
+        ...prev,
+        uid,
+        planId: record.planId,
+        status: record.status,
+        provider: record.provider || 'lemonsqueezy',
+        ...(record.subscriptionId !== undefined
+          ? { subscriptionId: record.subscriptionId || null }
+          : {}),
+        ...(record.customerId !== undefined ? { customerId: record.customerId || null } : {}),
+        ...(record.variantId !== undefined ? { variantId: record.variantId || null } : {}),
+        endsAt:
+          typeof record.endsAt === 'number' && Number.isFinite(record.endsAt)
+            ? record.endsAt
+            : null,
+        updatedAt: now,
+        createdAt: prev.createdAt ?? now,
+      });
+    },
+    claimProcessedWebhook: async (
+      eventId: string,
+      meta?: { eventName?: string; uid?: string }
+    ) => {
+      if (mockProcessedWebhooksMap.has(eventId)) {
+        return false;
+      }
+      mockProcessedWebhooksMap.set(eventId, {
+        eventId,
+        eventName: meta?.eventName || '',
+        uid: meta?.uid || '',
+        processedAt: Date.now(),
+      });
+      return true;
+    },
+    releaseProcessedWebhook: async (eventId: string) => {
+      mockProcessedWebhooksMap.delete(eventId);
+    },
+  };
+});
+
 import { createExpressApp } from '../server';
+import { setCustomTokenVerifierForTesting } from '../server/auth';
 import { clearAllFileLocks } from '../server/bruteForceProtection';
 import {
   getProtectorRepository,
@@ -44,6 +193,14 @@ describe('TASK 5 — Server Hardening, Storage, DoS Protection', () => {
 
   beforeEach(() => {
     clearAllFileLocks();
+    mockWorkflowsMap.clear();
+    mockEntitlementsMap.clear();
+    mockProcessedWebhooksMap.clear();
+    setCustomTokenVerifierForTesting(null);
+  });
+
+  afterEach(() => {
+    setCustomTokenVerifierForTesting(null);
   });
 
   // 1. Rate limit works with spoofed X-Forwarded-For
@@ -296,5 +453,460 @@ describe('TASK 5 — Server Hardening, Storage, DoS Protection', () => {
       },
       30000
     );
+  });
+
+  // 6. Task 1: JWT Signature Verification on /api/workflows & /api/billing/entitlement + Webhook HMAC
+  describe('6. Verified Auth on Workflows & Billing + HMAC Webhook', () => {
+    function buildUnsignedJwt(uid: string): string {
+      const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+      const payload = Buffer.from(
+        JSON.stringify({
+          sub: uid,
+          user_id: uid,
+          uid,
+          email: `${uid}@example.com`,
+          email_verified: true,
+        })
+      ).toString('base64url');
+      return `${header}.${payload}.`;
+    }
+
+    it('rejects a forged unsigned JWT with 401 on /api/workflows and /api/billing/entitlement', async () => {
+      const forgedJwt = buildUnsignedJwt('spoofed_admin_uid');
+
+      const wfPostRes = await fetch(`${baseUrl}/api/workflows`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${forgedJwt}`,
+        },
+        body: JSON.stringify({
+          name: 'Forged Workflow',
+          steps: ['merge-pdf'],
+        }),
+      });
+      expect(wfPostRes.status).toBe(401);
+      const wfPostBody = await wfPostRes.json();
+      expect(wfPostBody.ok).toBe(false);
+      expect(wfPostBody.code).toBe('INVALID_TOKEN');
+
+      const wfPutRes = await fetch(`${baseUrl}/api/workflows/wf_target_1`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${forgedJwt}`,
+        },
+        body: JSON.stringify({ name: 'Tampered' }),
+      });
+      expect(wfPutRes.status).toBe(401);
+
+      const wfDelRes = await fetch(`${baseUrl}/api/workflows/wf_target_1`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${forgedJwt}`,
+        },
+      });
+      expect(wfDelRes.status).toBe(401);
+
+      const entRes = await fetch(`${baseUrl}/api/billing/entitlement`, {
+        headers: {
+          Authorization: `Bearer ${forgedJwt}`,
+        },
+      });
+      expect(entRes.status).toBe(401);
+      const entBody = await entRes.json();
+      expect(entBody.ok).toBe(false);
+      expect(entBody.code).toBe('INVALID_TOKEN');
+    });
+
+    it('accepts a valid token via setCustomTokenVerifierForTesting on /api/workflows and /api/billing/entitlement', async () => {
+      setCustomTokenVerifierForTesting(async (token) => {
+        if (token !== 'valid-verifier-token') {
+          throw new Error('Rejected by custom verifier');
+        }
+        return {
+          uid: 'verified_custom_user',
+          email: 'verified_custom@example.com',
+          email_verified: true,
+        };
+      });
+
+      const entRes = await fetch(`${baseUrl}/api/billing/entitlement`, {
+        headers: { Authorization: 'Bearer valid-verifier-token' },
+      });
+      expect(entRes.status).toBe(200);
+      const entBody = await entRes.json();
+      expect(entBody.ok).toBe(true);
+      expect(entBody.entitlement.uid).toBe('verified_custom_user');
+
+      const wfRes = await fetch(`${baseUrl}/api/workflows`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer valid-verifier-token',
+        },
+        body: JSON.stringify({
+          name: 'Verified Custom Workflow',
+          description: 'Created after custom token verification',
+          steps: ['merge-pdf', 'compress-pdf'],
+        }),
+      });
+      expect(wfRes.status).toBe(201);
+      const wfBody = await wfRes.json();
+      expect(wfBody.ok).toBe(true);
+      expect(wfBody.workflow.ownerId).toBe('verified_custom_user');
+    });
+
+    function signWebhookPayload(payloadObj: Record<string, unknown>): {
+      raw: string;
+      sig: string;
+    } {
+      const raw = JSON.stringify(payloadObj);
+      const sig = crypto
+        .createHmac('sha256', testWebhookSecret)
+        .update(raw, 'utf-8')
+        .digest('hex');
+      return { raw, sig };
+    }
+
+    it('POST /api/billing/webhook succeeds with valid HMAC and rejects invalid HMAC with 401', async () => {
+      const { raw: payload, sig: validHmac } = signWebhookPayload({
+        meta: {
+          webhook_id: 'wh_hmac_valid_1',
+          event_name: 'order_created',
+          custom_data: {
+            uid: 'webhook_user_1',
+          },
+        },
+        data: {
+          id: 'sub_12345',
+          attributes: {
+            variant_id: 'var_pro_1',
+            product_name: 'ToolNova Pro Studio',
+            status: 'active',
+          },
+        },
+      });
+
+      const badHmac = '0'.repeat(64);
+
+      const badRes = await fetch(`${baseUrl}/api/billing/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-signature': badHmac,
+        },
+        body: payload,
+      });
+      expect(badRes.status).toBe(401);
+      expect(mockEntitlementsMap.has('webhook_user_1')).toBe(false);
+
+      const goodRes = await fetch(`${baseUrl}/api/billing/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-signature': validHmac,
+        },
+        body: payload,
+      });
+      expect(goodRes.status).toBe(200);
+      const goodBody = await goodRes.json();
+      expect(goodBody.success).toBe(true);
+      expect(goodBody.uid).toBe('webhook_user_1');
+      expect(mockEntitlementsMap.get('webhook_user_1')?.planId).toBe('pro');
+    });
+
+    it('Task 2: rejects unknown variant without default pro fallback and preserves existing entitlement', async () => {
+      // Case A: unknown variant_id on new user
+      const { raw: rawUnknown, sig: sigUnknown } = signWebhookPayload({
+        meta: {
+          webhook_id: 'wh_unknown_var_1',
+          event_name: 'subscription_created',
+          custom_data: { uid: 'unknown_var_user' },
+        },
+        data: {
+          id: 'sub_unknown_1',
+          attributes: {
+            variant_id: '999999',
+            product_name: 'Enterprise Super Plan', // Should NOT trigger heuristic match
+            status: 'active',
+          },
+        },
+      });
+
+      const resA = await fetch(`${baseUrl}/api/billing/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-signature': sigUnknown },
+        body: rawUnknown,
+      });
+      expect(resA.status).toBe(200);
+      expect(await resA.json()).toEqual({ received: true, warning: 'Unknown variant' });
+      expect(mockEntitlementsMap.has('unknown_var_user')).toBe(false);
+
+      // Case B: missing variant_id does NOT alter an existing enterprise entitlement
+      mockEntitlementsMap.set('existing_ent_user', {
+        uid: 'existing_ent_user',
+        planId: 'enterprise',
+        status: 'active',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      const { raw: rawMissing, sig: sigMissing } = signWebhookPayload({
+        meta: {
+          webhook_id: 'wh_missing_var_1',
+          event_name: 'subscription_expired',
+          custom_data: { uid: 'existing_ent_user' },
+        },
+        data: {
+          id: 'sub_missing_1',
+          attributes: {
+            product_name: 'ToolNova Pro',
+            status: 'expired',
+          },
+        },
+      });
+
+      const resB = await fetch(`${baseUrl}/api/billing/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-signature': sigMissing },
+        body: rawMissing,
+      });
+      expect(resB.status).toBe(200);
+      expect(await resB.json()).toEqual({ received: true, warning: 'Unknown variant' });
+      expect(mockEntitlementsMap.get('existing_ent_user')?.planId).toBe('enterprise');
+    });
+
+    it('Task 2: maps enterprise variant ID cleanly and deduplicates repeated events via meta.webhook_id and body hash', async () => {
+      const { raw: rawEnt, sig: sigEnt } = signWebhookPayload({
+        meta: {
+          webhook_id: 'wh_dedupe_1',
+          event_name: 'subscription_created',
+          custom_data: { uid: 'dedupe_user' },
+        },
+        data: {
+          id: 'sub_ent_1',
+          attributes: {
+            variant_id: 'var_ent_1',
+            status: 'active',
+          },
+        },
+      });
+
+      const firstRes = await fetch(`${baseUrl}/api/billing/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-signature': sigEnt },
+        body: rawEnt,
+      });
+      expect(firstRes.status).toBe(200);
+      expect(mockEntitlementsMap.get('dedupe_user')?.planId).toBe('enterprise');
+
+      // Mutate entitlement directly to verify duplicate delivery does NOT re-execute handler
+      mockEntitlementsMap.set('dedupe_user', {
+        uid: 'dedupe_user',
+        planId: 'free',
+        status: 'expired',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      const secondRes = await fetch(`${baseUrl}/api/billing/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-signature': sigEnt },
+        body: rawEnt,
+      });
+      expect(secondRes.status).toBe(200);
+      expect(await secondRes.json()).toEqual({ received: true, duplicate: true });
+      expect(mockEntitlementsMap.get('dedupe_user')?.planId).toBe('free');
+
+      // Also test SHA-256 fallback deduplication when meta.webhook_id is absent
+      const { raw: rawNoId, sig: sigNoId } = signWebhookPayload({
+        meta: {
+          event_name: 'order_created',
+          custom_data: { uid: 'dedupe_sha_user' },
+        },
+        data: {
+          id: 'sub_sha_1',
+          attributes: {
+            variant_id: 'var_pro_2',
+            status: 'active',
+          },
+        },
+      });
+
+      const shaFirst = await fetch(`${baseUrl}/api/billing/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-signature': sigNoId },
+        body: rawNoId,
+      });
+      expect(shaFirst.status).toBe(200);
+      expect(mockEntitlementsMap.get('dedupe_sha_user')?.planId).toBe('pro');
+
+      mockEntitlementsMap.delete('dedupe_sha_user');
+      const shaSecond = await fetch(`${baseUrl}/api/billing/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-signature': sigNoId },
+        body: rawNoId,
+      });
+      expect(shaSecond.status).toBe(200);
+      expect(await shaSecond.json()).toEqual({ received: true, duplicate: true });
+      expect(mockEntitlementsMap.has('dedupe_sha_user')).toBe(false);
+    });
+
+    it('Task 2: rejects meta.test_mode=true when NODE_ENV=production', async () => {
+      const prevEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      try {
+        const { raw, sig } = signWebhookPayload({
+          meta: {
+            webhook_id: 'wh_test_mode_prod',
+            test_mode: true,
+            event_name: 'subscription_created',
+            custom_data: { uid: 'test_mode_user' },
+          },
+          data: {
+            id: 'sub_test_1',
+            attributes: {
+              variant_id: 'var_pro_1',
+              status: 'active',
+            },
+          },
+        });
+
+        const res = await fetch(`${baseUrl}/api/billing/webhook`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-signature': sig },
+          body: raw,
+        });
+        expect(res.status).toBe(403);
+        expect(mockEntitlementsMap.has('test_mode_user')).toBe(false);
+      } finally {
+        process.env.NODE_ENV = prevEnv;
+      }
+    });
+
+    it('Task 2: sets past_due on subscription_payment_failed without immediate downgrade', async () => {
+      setCustomTokenVerifierForTesting(async () => ({
+        uid: 'past_due_user',
+        email: 'pastdue@example.com',
+        email_verified: true,
+      }));
+
+      const { raw, sig } = signWebhookPayload({
+        meta: {
+          webhook_id: 'wh_past_due_1',
+          event_name: 'subscription_payment_failed',
+          custom_data: { uid: 'past_due_user' },
+        },
+        data: {
+          id: 'sub_pd_1',
+          attributes: {
+            variant_id: 'var_pro_1',
+            status: 'past_due',
+          },
+        },
+      });
+
+      const whRes = await fetch(`${baseUrl}/api/billing/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-signature': sig },
+        body: raw,
+      });
+      expect(whRes.status).toBe(200);
+      expect(mockEntitlementsMap.get('past_due_user')?.status).toBe('past_due');
+      expect(mockEntitlementsMap.get('past_due_user')?.planId).toBe('pro');
+
+      const entRes = await fetch(`${baseUrl}/api/billing/entitlement`, {
+        headers: { Authorization: 'Bearer valid-past-due-token' },
+      });
+      expect(entRes.status).toBe(200);
+      const entBody = await entRes.json();
+      expect(entBody.entitlement.planId).toBe('pro');
+      expect(entBody.entitlement.status).toBe('past_due');
+      expect(entBody.entitlement.maxFileSizeMB).toBe(50);
+    });
+
+    it('Task 2: keeps paid plan on subscription_cancelled until ends_at, then reverts to free when expired', async () => {
+      setCustomTokenVerifierForTesting(async () => ({
+        uid: 'cancelled_user',
+        email: 'cancelled@example.com',
+        email_verified: true,
+      }));
+
+      // 1. Cancelled with future ends_at -> retains paid plan
+      const futureEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { raw: rawFuture, sig: sigFuture } = signWebhookPayload({
+        meta: {
+          webhook_id: 'wh_cancel_future_1',
+          event_name: 'subscription_cancelled',
+          custom_data: { uid: 'cancelled_user' },
+        },
+        data: {
+          id: 'sub_cancel_1',
+          attributes: {
+            variant_id: 'var_pro_1',
+            status: 'cancelled',
+            ends_at: futureEndsAt,
+          },
+        },
+      });
+
+      const resFuture = await fetch(`${baseUrl}/api/billing/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-signature': sigFuture },
+        body: rawFuture,
+      });
+      expect(resFuture.status).toBe(200);
+
+      const entFutureRes = await fetch(`${baseUrl}/api/billing/entitlement`, {
+        headers: { Authorization: 'Bearer valid-cancel-token' },
+      });
+      expect(entFutureRes.status).toBe(200);
+      const entFutureBody = await entFutureRes.json();
+      expect(entFutureBody.entitlement.planId).toBe('pro');
+      expect(entFutureBody.entitlement.status).toBe('cancelled');
+      expect(entFutureBody.entitlement.maxFileSizeMB).toBe(50);
+
+      // 2. Once ends_at is in the past, reading entitlement reverts to 'free' even if DB record still says 'pro'
+      mockEntitlementsMap.set('cancelled_user', {
+        ...mockEntitlementsMap.get('cancelled_user'),
+        planId: 'pro',
+        status: 'cancelled',
+        endsAt: Date.now() - 1000,
+      });
+
+      const entExpiredReadRes = await fetch(`${baseUrl}/api/billing/entitlement`, {
+        headers: { Authorization: 'Bearer valid-cancel-token' },
+      });
+      expect(entExpiredReadRes.status).toBe(200);
+      const entExpiredReadBody = await entExpiredReadRes.json();
+      expect(entExpiredReadBody.entitlement.planId).toBe('free');
+      expect(entExpiredReadBody.entitlement.maxFileSizeMB).toBe(15);
+
+      // 3. Explicit subscription_expired webhook also reverts to 'free' with status 'expired'
+      const { raw: rawExpired, sig: sigExpired } = signWebhookPayload({
+        meta: {
+          webhook_id: 'wh_expired_1',
+          event_name: 'subscription_expired',
+          custom_data: { uid: 'cancelled_user' },
+        },
+        data: {
+          id: 'sub_cancel_1',
+          attributes: {
+            variant_id: 'var_pro_1',
+            status: 'expired',
+          },
+        },
+      });
+
+      const resExpired = await fetch(`${baseUrl}/api/billing/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-signature': sigExpired },
+        body: rawExpired,
+      });
+      expect(resExpired.status).toBe(200);
+      expect(mockEntitlementsMap.get('cancelled_user')?.planId).toBe('free');
+      expect(mockEntitlementsMap.get('cancelled_user')?.status).toBe('expired');
+    });
   });
 });

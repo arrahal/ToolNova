@@ -21,6 +21,8 @@ import {
   Lock,
   Unlock,
   LayoutDashboard,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import {
   TOOLS_DATA,
@@ -51,10 +53,14 @@ import {
   onAuthStateChanged,
   fetchUserProfileFromFirestore,
   saveUserProfileToFirestore,
-  saveWorkflowToFirestore,
+  createWorkflowViaApi,
+  updateWorkflowViaApi,
+  deleteWorkflowViaApi,
   saveActivityLogToFirestore,
   subscribeToUserWorkspace,
 } from './lib/firebase';
+
+const PRESET_WORKFLOW_IDS = new Set(INITIAL_WORKFLOWS.map((w) => w.id));
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(false);
@@ -65,6 +71,9 @@ export default function App() {
   const [selectedCardId, setSelectedCardId] = useState<string>('pdf-to-word');
   const [workflows, setWorkflows] = useState<WorkflowPreset[]>(INITIAL_WORKFLOWS);
   const [isWorkflowModalOpen, setIsWorkflowModalOpen] = useState(false);
+  const [editingWorkflow, setEditingWorkflow] = useState<WorkflowPreset | null>(null);
+  const [workflowActionError, setWorkflowActionError] = useState<string | null>(null);
+  const [deletingWorkflowId, setDeletingWorkflowId] = useState<string | null>(null);
   const [activeWorkflowRunner, setActiveWorkflowRunner] = useState<{
     workflow: WorkflowPreset;
     stepIndex: number;
@@ -150,13 +159,11 @@ export default function App() {
           unsubWorkspace = subscribeToUserWorkspace(
             fbUser.uid,
             (cloudWorkflows) => {
-              if (cloudWorkflows.length > 0) {
-                setWorkflows((prev) => {
-                  const existingIds = new Set(cloudWorkflows.map((w) => w.id));
-                  const defaults = INITIAL_WORKFLOWS.filter((w) => !existingIds.has(w.id));
-                  return [...cloudWorkflows, ...defaults];
-                });
-              }
+              setWorkflows(() => {
+                const existingIds = new Set(cloudWorkflows.map((w) => w.id));
+                const defaults = INITIAL_WORKFLOWS.filter((w) => !existingIds.has(w.id));
+                return [...cloudWorkflows, ...defaults];
+              });
             },
             (cloudLogs) => {
               if (cloudLogs.length > 0) {
@@ -171,6 +178,7 @@ export default function App() {
         setUserPhotoURL(null);
         setCurrentUser(null);
         setActivePlan('free');
+        setWorkflows(INITIAL_WORKFLOWS);
       }
     });
 
@@ -614,7 +622,11 @@ export default function App() {
           )}
 
           <button
-            onClick={() => setIsWorkflowModalOpen(true)}
+            onClick={() => {
+              setEditingWorkflow(null);
+              setWorkflowActionError(null);
+              setIsWorkflowModalOpen(true);
+            }}
             className="hidden sm:inline-flex px-4 py-2 text-xs font-bold text-white bg-[#e5322d] hover:bg-[#d12823] rounded-xl shadow-2xs transition-all whitespace-nowrap shrink-0 cursor-pointer"
           >
             {t.createWorkflowBtn}
@@ -788,7 +800,11 @@ export default function App() {
                 </p>
               </div>
               <button
-                onClick={() => setIsWorkflowModalOpen(true)}
+                onClick={() => {
+                  setEditingWorkflow(null);
+                  setWorkflowActionError(null);
+                  setIsWorkflowModalOpen(true);
+                }}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-[#e5322d] hover:bg-[#d12823] text-white transition-colors cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
@@ -796,59 +812,121 @@ export default function App() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {workflows.map((wf) => (
-                <div
-                  key={wf.id}
-                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between hover:shadow-md hover:border-slate-300 transition-all"
+            {workflowActionError && (
+              <div
+                role="alert"
+                className="mb-4 p-3 rounded-xl bg-red-50 dark:bg-rose-950/50 border border-red-200 dark:border-rose-800 text-xs font-semibold text-red-700 dark:text-rose-300 flex items-center justify-between gap-2"
+              >
+                <span>{workflowActionError}</span>
+                <button
+                  type="button"
+                  onClick={() => setWorkflowActionError(null)}
+                  className="p-1 text-red-500 hover:text-red-800 dark:hover:text-white cursor-pointer"
+                  aria-label="Dismiss error"
                 >
-                  <div>
-                    <div className="flex items-center justify-between text-xs text-[#64748b] dark:text-slate-400 mb-2">
-                      <span className="font-mono tabular-nums">
-                        {wf.steps.length} · ~{wf.estimatedSavedSec} {t.savedSecSuffix}
-                      </span>
-                      <span className="font-mono tabular-nums">
-                        {wf.runsCount} runs
-                      </span>
-                    </div>
-                    <h3 className="text-[15px] font-bold text-[#111827] dark:text-white mb-1">
-                      {wf.name}
-                    </h3>
-                    <p className="text-xs text-[#64748b] dark:text-slate-400 mb-4 leading-relaxed">
-                      {wf.description}
-                    </p>
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
 
-                    <div className="flex flex-wrap items-center gap-1.5 mb-5 text-xs text-slate-700 dark:text-slate-300">
-                      {wf.steps.map((stepId, sIdx) => {
-                        const stepTool = TOOLS_DATA.find((item) => item.id === stepId);
-                        if (!stepTool) return null;
-                        const locStep = getLocalizedTool(stepTool, language);
-                        return (
-                          <React.Fragment key={`${stepId}-${sIdx}`}>
-                            <span className="font-medium">{locStep.title}</span>
-                            {sIdx < wf.steps.length - 1 && (
-                              <span
-                                aria-hidden="true"
-                                className="text-slate-400 px-0.5"
-                              >
-                                →
-                              </span>
-                            )}
-                          </React.Fragment>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => handleStartWorkflow(wf)}
-                    className="w-full py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {workflows.map((wf) => {
+                const isCustomWorkflow = !PRESET_WORKFLOW_IDS.has(wf.id);
+                return (
+                  <div
+                    key={wf.id}
+                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between hover:shadow-md hover:border-slate-300 transition-all"
                   >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    {t.runPipelineBtn}
-                  </button>
-                </div>
-              ))}
+                    <div>
+                      <div className="flex items-center justify-between text-xs text-[#64748b] dark:text-slate-400 mb-2">
+                        <span className="font-mono tabular-nums">
+                          {wf.steps.length} · ~{wf.estimatedSavedSec} {t.savedSecSuffix}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono tabular-nums">{wf.runsCount} runs</span>
+                          {isCustomWorkflow && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setWorkflowActionError(null);
+                                  setEditingWorkflow(wf);
+                                  setIsWorkflowModalOpen(true);
+                                }}
+                                title={language === 'ar' ? 'تعديل المسار' : 'Edit workflow'}
+                                aria-label={language === 'ar' ? 'تعديل المسار' : 'Edit workflow'}
+                                className="p-1 rounded-lg text-slate-400 hover:text-[#111827] dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={deletingWorkflowId === wf.id}
+                                onClick={async () => {
+                                  setWorkflowActionError(null);
+                                  setDeletingWorkflowId(wf.id);
+                                  try {
+                                    await deleteWorkflowViaApi(wf.id);
+                                    setWorkflows((prev) => prev.filter((item) => item.id !== wf.id));
+                                  } catch (err) {
+                                    setWorkflowActionError(
+                                      err instanceof Error ? err.message : String(err)
+                                    );
+                                  } finally {
+                                    setDeletingWorkflowId(null);
+                                  }
+                                }}
+                                title={language === 'ar' ? 'حذف المسار' : 'Delete workflow'}
+                                aria-label={language === 'ar' ? 'حذف المسار' : 'Delete workflow'}
+                                className="p-1 rounded-lg text-slate-400 hover:text-[#e5322d] hover:bg-red-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer disabled:opacity-40"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <h3 className="text-[15px] font-bold text-[#111827] dark:text-white mb-1">
+                        {wf.name}
+                      </h3>
+                      {wf.description && (
+                        <p className="text-xs text-[#64748b] dark:text-slate-400 mb-4 leading-relaxed">
+                          {wf.description}
+                        </p>
+                      )}
+
+                      <div className="flex flex-wrap items-center gap-1.5 mb-5 text-xs text-slate-700 dark:text-slate-300">
+                        {wf.steps.map((stepId, sIdx) => {
+                          const stepTool = TOOLS_DATA.find((item) => item.id === stepId);
+                          if (!stepTool) return null;
+                          const locStep = getLocalizedTool(stepTool, language);
+                          return (
+                            <React.Fragment key={`${stepId}-${sIdx}`}>
+                              <span className="font-medium">{locStep.title}</span>
+                              {sIdx < wf.steps.length - 1 && (
+                                <span
+                                  aria-hidden="true"
+                                  className="text-slate-400 px-0.5"
+                                >
+                                  →
+                                </span>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleStartWorkflow(wf)}
+                      className="w-full py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      {t.runPipelineBtn}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </section>
         )}
@@ -931,7 +1009,11 @@ export default function App() {
               {/* Create a workflow card */}
               <button
                 type="button"
-                onClick={() => setIsWorkflowModalOpen(true)}
+                onClick={() => {
+                  setEditingWorkflow(null);
+                  setWorkflowActionError(null);
+                  setIsWorkflowModalOpen(true);
+                }}
                 className="group relative overflow-hidden text-start rounded-2xl p-5 bg-[#FFF5F2] dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 hover:shadow-md hover:border-[#e5322d] transition-all duration-150 flex flex-col justify-between min-h-[172px] cursor-pointer"
               >
                 <svg
@@ -1147,14 +1229,29 @@ export default function App() {
 
       <WorkflowBuilderModal
         isOpen={isWorkflowModalOpen}
-        onClose={() => setIsWorkflowModalOpen(false)}
-        onSaveWorkflow={(newWf) => {
-          setWorkflows((prev) => [newWf, ...prev]);
-          setActiveCategory('workflows');
-          if (auth.currentUser?.uid) {
-            saveWorkflowToFirestore(auth.currentUser.uid, newWf).catch((err) =>
-              console.error('Failed to save workflow to Firestore:', err)
+        language={language}
+        editingWorkflow={editingWorkflow}
+        onClose={() => {
+          setIsWorkflowModalOpen(false);
+          setEditingWorkflow(null);
+        }}
+        onSaveWorkflow={async (input, editingId) => {
+          if (editingId) {
+            const updatedWf = await updateWorkflowViaApi(editingId, input);
+            setWorkflows((prev) =>
+              prev.map((item) =>
+                item.id === editingId
+                  ? { ...updatedWf, runsCount: item.runsCount }
+                  : item
+              )
             );
+          } else {
+            const createdWf = await createWorkflowViaApi(input);
+            setWorkflows((prev) => {
+              const filtered = prev.filter((item) => item.id !== createdWf.id);
+              return [createdWf, ...filtered];
+            });
+            setActiveCategory('workflows');
           }
         }}
       />

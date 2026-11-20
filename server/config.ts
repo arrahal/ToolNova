@@ -50,7 +50,7 @@ function resolveFirebaseProjectId(): string {
   } catch (err) {
     console.error('Failed to read firebase-applet-config.json:', err);
   }
-  return 'gen-lang-client-0209937761';
+  return 'platinum-canto-h1ttq';
 }
 
 export const FIREBASE_PROJECT_ID = resolveFirebaseProjectId();
@@ -66,7 +66,7 @@ function resolveFirestoreDatabaseId(): string {
   } catch (err) {
     console.error('Failed to read firestoreDatabaseId:', err);
   }
-  return 'ai-studio-toolnova-339d7e1e-b948-437e-94da-66fea2490075';
+  return 'ai-studio-toolnova-5108839e-cf7e-436d-a08c-d644ea2f35ed';
 }
 
 export const FIRESTORE_DATABASE_ID = resolveFirestoreDatabaseId();
