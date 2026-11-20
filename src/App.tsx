@@ -53,11 +53,14 @@ import {
   onAuthStateChanged,
   fetchUserProfileFromFirestore,
   saveUserProfileToFirestore,
+  buildDefaultProfile,
   createWorkflowViaApi,
   updateWorkflowViaApi,
   deleteWorkflowViaApi,
   saveActivityLogToFirestore,
   subscribeToUserWorkspace,
+  subscribeToEntitlement,
+  WorkflowApiError,
 } from './lib/firebase';
 
 const PRESET_WORKFLOW_IDS = new Set(INITIAL_WORKFLOWS.map((w) => w.id));
@@ -84,6 +87,7 @@ export default function App() {
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [upgradeNotice, setUpgradeNotice] = useState<string | null>(null);
   const [fileProtectorModalState, setFileProtectorModalState] = useState<{
     isOpen: boolean;
     tab: ProtectorTab;
@@ -120,34 +124,59 @@ export default function App() {
   }, [language, currentLangMeta.dir]);
 
   useEffect(() => {
+    let isDisposed = false;
+    let activeUid: string | null = null;
     let unsubWorkspace: (() => void) | null = null;
+    let unsubEntitlement: (() => void) | null = null;
 
-    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+    const cleanupSubscriptions = () => {
       if (unsubWorkspace) {
         unsubWorkspace();
         unsubWorkspace = null;
       }
+      if (unsubEntitlement) {
+        unsubEntitlement();
+        unsubEntitlement = null;
+      }
+    };
+
+    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+      cleanupSubscriptions();
+      activeUid = fbUser?.uid || null;
 
       if (fbUser) {
         setUserPhotoURL(fbUser.photoURL || null);
+
+        // Live server-verified entitlement subscription (no refresh required after payment)
+        unsubEntitlement = subscribeToEntitlement(fbUser.uid, (planId) => {
+          if (isDisposed || activeUid !== fbUser.uid) return;
+          setActivePlan(planId);
+          setCurrentUser((prev) => {
+            if (!prev || prev.uid !== fbUser.uid || prev.planId === planId) {
+              return prev;
+            }
+            const updated = { ...prev, planId };
+            try {
+              localStorage.setItem('toolnova_user_profile', JSON.stringify(updated));
+            } catch {
+              // ignore
+            }
+            return updated;
+          });
+        });
+
         try {
           let profile = await fetchUserProfileFromFirestore(fbUser.uid);
+          if (isDisposed || activeUid !== fbUser.uid) return;
+
           if (!profile) {
-            profile = {
-              uid: fbUser.uid,
-              photoURL: fbUser.photoURL || undefined,
-              fullName: (fbUser.displayName || fbUser.email?.split('@')[0] || 'ToolNova User').slice(0, 120),
-              email: (fbUser.email || 'user@example.com').slice(0, 254),
-              phone: '+212 600-000000',
-              companyOrRole: 'Independent Professional',
-              country: 'Morocco',
-              planId: 'free',
-              joinedAt: new Date().toISOString().slice(0, 10),
-            };
+            profile = buildDefaultProfile(fbUser, 'free');
             await saveUserProfileToFirestore(fbUser.uid, profile);
           } else if (fbUser.photoURL && !profile.photoURL) {
             profile = { ...profile, photoURL: fbUser.photoURL };
           }
+          if (isDisposed || activeUid !== fbUser.uid) return;
+
           setCurrentUser(profile);
           setActivePlan(profile.planId);
           try {
@@ -183,8 +212,10 @@ export default function App() {
     });
 
     return () => {
+      isDisposed = true;
+      activeUid = null;
       unsubAuth();
-      if (unsubWorkspace) unsubWorkspace();
+      cleanupSubscriptions();
     };
   }, []);
 
@@ -316,8 +347,11 @@ export default function App() {
       }
     } else {
       handleRecordHistory(
-        `Workflow: ${activeWorkflowRunner.workflow.name}`,
-        `Completed all ${activeWorkflowRunner.workflow.steps.length} pipeline stages locally.`
+        `${t.workflowHistoryPrefix}: ${activeWorkflowRunner.workflow.name}`,
+        t.workflowCompletedDetail.replace(
+          '{count}',
+          String(activeWorkflowRunner.workflow.steps.length)
+        )
       );
       setActiveWorkflowRunner(null);
       setSelectedTool(null);
@@ -331,17 +365,7 @@ export default function App() {
       setUserPhotoURL(fbUser.photoURL || null);
       let profile = await fetchUserProfileFromFirestore(fbUser.uid);
       if (!profile) {
-        profile = {
-          uid: fbUser.uid,
-          photoURL: fbUser.photoURL || undefined,
-          fullName: (fbUser.displayName || fbUser.email?.split('@')[0] || 'ToolNova User').slice(0, 120),
-          email: (fbUser.email || 'user@example.com').slice(0, 254),
-          phone: '+212 600-000000',
-          companyOrRole: 'Independent Professional',
-          country: 'Morocco',
-          planId: activePlan,
-          joinedAt: new Date().toISOString().slice(0, 10),
-        };
+        profile = buildDefaultProfile(fbUser, activePlan);
         await saveUserProfileToFirestore(fbUser.uid, profile);
       } else if (fbUser.photoURL) {
         profile = { ...profile, photoURL: fbUser.photoURL };
@@ -354,7 +378,7 @@ export default function App() {
         // ignore
       }
       handleRecordHistory(
-        language === 'ar' ? 'تسجيل الدخول عبر Google' : 'Google Sign-In',
+        t.googleSignInHistoryTitle,
         `${profile.fullName} (${profile.email})`
       );
     } catch (err) {
@@ -435,7 +459,7 @@ export default function App() {
             className="whitespace-nowrap shrink-0 py-1 text-[#111827] dark:text-white font-extrabold inline-flex items-center gap-1 hover:text-[#e5322d] dark:hover:text-rose-400 transition-colors cursor-pointer"
           >
             <Lock className="w-3.5 h-3.5 text-[#e5322d]" />
-            <span>{language === 'ar' ? 'تشفير الملفات وحمايتها' : 'File Protector'}</span>
+            <span>{t.fileProtectorNavLabel}</span>
           </button>
         </nav>
 
@@ -447,8 +471,8 @@ export default function App() {
               type="button"
               onClick={() => setIsLangMenuOpen((prev) => !prev)}
               aria-expanded={isLangMenuOpen}
-              aria-label="Select Language"
-              title="تغيير اللغة / Change Language"
+              aria-label={t.selectLanguageAriaLabel}
+              title={t.changeLanguageTitle}
               className={`p-2 rounded-xl border transition-all flex items-center gap-1 cursor-pointer ${
                 isLangMenuOpen
                   ? 'bg-red-50 border-[#e5322d] text-[#e5322d]'
@@ -499,8 +523,8 @@ export default function App() {
           <button
             onClick={() => setDarkMode((prev) => !prev)}
             className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 hover:border-slate-300 transition-all cursor-pointer"
-            aria-label="Toggle color theme"
-            title="Toggle Light / Dark Mode"
+            aria-label={t.toggleThemeAriaLabel}
+            title={t.toggleThemeTitle}
           >
             {darkMode ? (
               <Sun className="w-4 h-4 text-amber-400" />
@@ -516,11 +540,9 @@ export default function App() {
             className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-xl text-xs font-extrabold bg-red-50 hover:bg-red-100/80 dark:bg-rose-950/50 text-[#e5322d] dark:text-rose-300 border border-red-200/90 dark:border-rose-800/80 shadow-2xs transition-all cursor-pointer shrink-0"
           >
             <Sparkles className="w-3.5 h-3.5 text-[#e5322d] shrink-0" />
-            <span>
-              {language === 'ar' ? 'الترقية إلى Pro' : 'Upgrade to Pro'}
-            </span>
+            <span>{t.upgradeToProBtn}</span>
             <span className="hidden xl:inline-block px-1.5 py-0.5 rounded-md bg-[#e5322d] text-white text-[10px] font-extrabold leading-none">
-              {language === 'ar' ? 'غير محدود' : 'Go Unlimited'}
+              {t.goUnlimitedBadge}
             </span>
           </button>
 
@@ -558,7 +580,7 @@ export default function App() {
                   type="button"
                   onClick={() => setIsUpgradeModalOpen(true)}
                   className="px-2 py-0.5 rounded-full bg-[#e5322d] text-white text-[10px] font-extrabold tracking-wide inline-flex items-center gap-0.5 shrink-0 cursor-pointer"
-                  title="Pro / Premium Account Active"
+                  title={t.proAccountActiveTitle}
                 >
                   <Crown className="w-2.5 h-2.5" />
                   <span>PRO</span>
@@ -569,12 +591,10 @@ export default function App() {
                 type="button"
                 onClick={handleSignOutUser}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-[#e5322d] hover:bg-red-50 dark:hover:bg-slate-700 transition-colors cursor-pointer inline-flex items-center gap-1 text-[11px] font-bold"
-                title={language === 'ar' ? 'تسجيل الخروج' : 'Sign out'}
+                title={t.logoutBtnLabel}
               >
                 <LogOut className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">
-                  {language === 'ar' ? 'خروج' : 'Sign out'}
-                </span>
+                <span className="hidden md:inline">{t.signOutShortLabel}</span>
               </button>
             </div>
           ) : (
@@ -602,11 +622,7 @@ export default function App() {
                     d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 20.9 7.4 24 12 24z"
                   />
                 </svg>
-                <span className="whitespace-nowrap">
-                  {language === 'ar'
-                    ? 'تسجيل الدخول / Google'
-                    : 'Login / Sign in with Google'}
-                </span>
+                <span className="whitespace-nowrap">{t.googleLoginBtnLabel}</span>
               </button>
 
               <button
@@ -614,7 +630,7 @@ export default function App() {
                 onClick={() => setIsAuthModalOpen(true)}
                 className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
                 title={t.loginBtnLabel}
-                aria-label="Account profile modal"
+                aria-label={t.accountProfileLabel}
               >
                 <User className="w-4 h-4 text-[#e5322d]" />
               </button>
@@ -640,12 +656,13 @@ export default function App() {
           <div className="max-w-[1440px] mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-rose-400">
-                Active Workflow: {activeWorkflowRunner.workflow.name}
+                {t.activeWorkflowLabel}: {activeWorkflowRunner.workflow.name}
               </span>
               <span className="text-slate-400">·</span>
               <span className="font-mono tabular-nums">
-                Step {activeWorkflowRunner.stepIndex + 1} of{' '}
-                {activeWorkflowRunner.workflow.steps.length}
+                {t.workflowStepProgress
+                  .replace('{current}', String(activeWorkflowRunner.stepIndex + 1))
+                  .replace('{total}', String(activeWorkflowRunner.workflow.steps.length))}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -655,15 +672,15 @@ export default function App() {
               >
                 {activeWorkflowRunner.stepIndex + 1 <
                 activeWorkflowRunner.workflow.steps.length
-                  ? 'Next Pipeline Step'
-                  : 'Finish Workflow'}
+                  ? t.nextPipelineStepBtn
+                  : t.finishWorkflowBtn}
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
               <button
                 onClick={() => setActiveWorkflowRunner(null)}
                 className="text-slate-400 hover:text-white"
               >
-                Exit
+                {t.exitWorkflowBtn}
               </button>
             </div>
           </div>
@@ -701,7 +718,7 @@ export default function App() {
               <button
                 onClick={() => setSearchQuery('')}
                 className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                aria-label="Clear search"
+                aria-label={t.clearSearchAriaLabel}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -714,7 +731,7 @@ export default function App() {
 
           <div
             role="tablist"
-            aria-label="Tool category filter"
+            aria-label={t.categoryFilterAriaLabel}
             className="flex items-center justify-start sm:justify-center gap-2 overflow-x-auto pb-2 no-scrollbar"
           >
             {CATEGORY_TABS.map((tab) => {
@@ -745,14 +762,10 @@ export default function App() {
               </div>
               <div>
                 <div className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white">
-                  {language === 'ar'
-                    ? '🔐 خدمة تشفير الملفات وحمايتها (File Protector)'
-                    : '🔐 File Protector — AES-256-GCM Encryption & Open Limit'}
+                  {t.fileProtectorBannerTitle}
                 </div>
                 <div className="text-[11px] text-[#64748b] dark:text-slate-400">
-                  {language === 'ar'
-                    ? 'تشفير Word, Excel, PowerPoint, PDF, ZIP · تحديد عدد مرات الفتح (مرة واحدة أو أكثر) · عارض آمن ولوحة تحكم'
-                    : 'Encrypt Word, Excel, PowerPoint, PDF, ZIP · Atomic Open Limits · Secure Viewer & Dashboard'}
+                  {t.fileProtectorBannerDesc}
                 </div>
               </div>
             </div>
@@ -764,7 +777,7 @@ export default function App() {
                 className="px-3.5 py-2 rounded-xl bg-[#e5322d] hover:bg-[#d12823] text-white text-xs font-extrabold transition-colors cursor-pointer inline-flex items-center gap-1.5"
               >
                 <Lock className="w-3.5 h-3.5" />
-                <span>{language === 'ar' ? 'تشفير ملف' : 'Encrypt File'}</span>
+                <span>{t.encryptFileBtn}</span>
               </button>
 
               <button
@@ -773,7 +786,7 @@ export default function App() {
                 className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 text-[#111827] dark:text-white text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5"
               >
                 <Unlock className="w-3.5 h-3.5 text-emerald-600" />
-                <span>{language === 'ar' ? 'فتح ملف (.secure)' : 'Open .secure'}</span>
+                <span>{t.openSecureFileBtn}</span>
               </button>
 
               <button
@@ -782,7 +795,7 @@ export default function App() {
                 className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1"
               >
                 <LayoutDashboard className="w-3.5 h-3.5 text-slate-500" />
-                <span>{language === 'ar' ? 'لوحة التحكم' : 'Dashboard'}</span>
+                <span>{t.dashboardBtn}</span>
               </button>
             </div>
           </div>
@@ -822,7 +835,7 @@ export default function App() {
                   type="button"
                   onClick={() => setWorkflowActionError(null)}
                   className="p-1 text-red-500 hover:text-red-800 dark:hover:text-white cursor-pointer"
-                  aria-label="Dismiss error"
+                  aria-label={t.dismissErrorAriaLabel}
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -843,7 +856,9 @@ export default function App() {
                           {wf.steps.length} · ~{wf.estimatedSavedSec} {t.savedSecSuffix}
                         </span>
                         <div className="flex items-center gap-1.5">
-                          <span className="font-mono tabular-nums">{wf.runsCount} runs</span>
+                          <span className="font-mono tabular-nums">
+                            {wf.runsCount} {t.workflowRunsSuffix}
+                          </span>
                           {isCustomWorkflow && (
                             <>
                               <button
@@ -853,8 +868,8 @@ export default function App() {
                                   setEditingWorkflow(wf);
                                   setIsWorkflowModalOpen(true);
                                 }}
-                                title={language === 'ar' ? 'تعديل المسار' : 'Edit workflow'}
-                                aria-label={language === 'ar' ? 'تعديل المسار' : 'Edit workflow'}
+                                title={t.editWorkflowLabel}
+                                aria-label={t.editWorkflowLabel}
                                 className="p-1 rounded-lg text-slate-400 hover:text-[#111827] dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                               >
                                 <Pencil className="w-3.5 h-3.5" />
@@ -869,15 +884,18 @@ export default function App() {
                                     await deleteWorkflowViaApi(wf.id);
                                     setWorkflows((prev) => prev.filter((item) => item.id !== wf.id));
                                   } catch (err) {
-                                    setWorkflowActionError(
-                                      err instanceof Error ? err.message : String(err)
-                                    );
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    setWorkflowActionError(msg);
+                                    if (err instanceof WorkflowApiError && err.status === 403) {
+                                      setUpgradeNotice(msg);
+                                      setIsUpgradeModalOpen(true);
+                                    }
                                   } finally {
                                     setDeletingWorkflowId(null);
                                   }
                                 }}
-                                title={language === 'ar' ? 'حذف المسار' : 'Delete workflow'}
-                                aria-label={language === 'ar' ? 'حذف المسار' : 'Delete workflow'}
+                                title={t.deleteWorkflowLabel}
+                                aria-label={t.deleteWorkflowLabel}
                                 className="p-1 rounded-lg text-slate-400 hover:text-[#e5322d] hover:bg-red-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer disabled:opacity-40"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -951,7 +969,7 @@ export default function App() {
             </button>
           </div>
         ) : (
-          <section aria-label="Tools Grid">
+          <section aria-label={t.toolsGridAriaLabel}>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
               {filteredTools.map((tool) => {
                 const isSelected = selectedCardId === tool.id;
@@ -1236,22 +1254,34 @@ export default function App() {
           setEditingWorkflow(null);
         }}
         onSaveWorkflow={async (input, editingId) => {
-          if (editingId) {
-            const updatedWf = await updateWorkflowViaApi(editingId, input);
-            setWorkflows((prev) =>
-              prev.map((item) =>
-                item.id === editingId
-                  ? { ...updatedWf, runsCount: item.runsCount }
-                  : item
-              )
-            );
-          } else {
-            const createdWf = await createWorkflowViaApi(input);
-            setWorkflows((prev) => {
-              const filtered = prev.filter((item) => item.id !== createdWf.id);
-              return [createdWf, ...filtered];
-            });
-            setActiveCategory('workflows');
+          try {
+            if (editingId) {
+              const updatedWf = await updateWorkflowViaApi(editingId, input);
+              setWorkflows((prev) =>
+                prev.map((item) =>
+                  item.id === editingId
+                    ? { ...updatedWf, runsCount: item.runsCount }
+                    : item
+                )
+              );
+            } else {
+              const createdWf = await createWorkflowViaApi(input);
+              setWorkflows((prev) => {
+                const filtered = prev.filter((item) => item.id !== createdWf.id);
+                return [createdWf, ...filtered];
+              });
+              setActiveCategory('workflows');
+            }
+          } catch (err) {
+            if (err instanceof WorkflowApiError && err.status === 403) {
+              setWorkflowActionError(err.message);
+              setUpgradeNotice(err.message);
+              setIsWorkflowModalOpen(false);
+              setEditingWorkflow(null);
+              setIsUpgradeModalOpen(true);
+              return;
+            }
+            throw err;
           }
         }}
       />
@@ -1266,16 +1296,7 @@ export default function App() {
           const fbUser = cred.user;
           let profile = await fetchUserProfileFromFirestore(fbUser.uid);
           if (!profile) {
-            profile = {
-              uid: fbUser.uid,
-              fullName: (fbUser.displayName || fbUser.email?.split('@')[0] || 'ToolNova User').slice(0, 120),
-              email: (fbUser.email || 'user@example.com').slice(0, 254),
-              phone: '+212 600-000000',
-              companyOrRole: 'Independent Professional',
-              country: 'Morocco',
-              planId: activePlan,
-              joinedAt: new Date().toISOString().slice(0, 10),
-            };
+            profile = buildDefaultProfile(fbUser, activePlan);
             await saveUserProfileToFirestore(fbUser.uid, profile);
           }
           setCurrentUser(profile);
@@ -1286,7 +1307,7 @@ export default function App() {
             // ignore
           }
           handleRecordHistory(
-            language === 'ar' ? 'حساب Google (Firebase)' : 'Firebase Google Account',
+            t.firebaseGoogleAccountHistoryTitle,
             `${profile.fullName} (${profile.email})`
           );
         }}
@@ -1308,8 +1329,8 @@ export default function App() {
             );
           }
           handleRecordHistory(
-            language === 'ar' ? 'الحساب الشخصي' : 'User Account',
-            `${finalUser.fullName} (${finalUser.email}) · Plan: ${finalUser.planId.toUpperCase()}`
+            t.userAccountHistoryTitle,
+            `${finalUser.fullName} (${finalUser.email}) · ${t.planHistoryLabel}: ${finalUser.planId.toUpperCase()}`
           );
         }}
         onLogout={() => {
@@ -1330,13 +1351,17 @@ export default function App() {
 
       <SubscriptionUpgradeModal
         isOpen={isUpgradeModalOpen}
-        onClose={() => setIsUpgradeModalOpen(false)}
+        onClose={() => {
+          setIsUpgradeModalOpen(false);
+          setUpgradeNotice(null);
+        }}
         language={language}
         activePlan={activePlan}
+        noticeMessage={upgradeNotice}
         onUpgradeSuccess={(_plan, method) => {
           handleRecordHistory(
-            language === 'ar' ? 'طلب ترقية الحساب' : 'Subscription Checkout Initiated',
-            `Provider: ${method}`
+            t.checkoutInitiatedHistoryTitle,
+            `${t.providerHistoryLabel}: ${method}`
           );
         }}
       />

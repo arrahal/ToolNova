@@ -20,6 +20,7 @@ interface SubscriptionUpgradeModalProps {
   onClose: () => void;
   language: AppLanguage;
   activePlan: PlanTierId;
+  noticeMessage?: string | null;
   onUpgradeSuccess: (plan: PlanTierId, method: string) => void;
 }
 
@@ -219,6 +220,7 @@ export const SubscriptionUpgradeModal: React.FC<SubscriptionUpgradeModalProps> =
   onClose,
   language,
   activePlan,
+  noticeMessage = null,
   onUpgradeSuccess,
 }) => {
   const [billingInterval, setBillingInterval] = useState<'monthly' | 'yearly'>('monthly');
@@ -308,6 +310,15 @@ export const SubscriptionUpgradeModal: React.FC<SubscriptionUpgradeModalProps> =
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {noticeMessage && (
+          <div
+            role="alert"
+            className="mx-6 sm:mx-8 mt-5 p-3.5 rounded-xl bg-red-50 dark:bg-rose-950/50 border border-red-200 dark:border-rose-800 text-xs font-semibold text-red-700 dark:text-rose-300"
+          >
+            {noticeMessage}
+          </div>
+        )}
 
         {/* Billing Cycle Toggle Bar */}
         <div className="px-6 sm:px-8 pt-5 flex flex-wrap items-center justify-between gap-3">

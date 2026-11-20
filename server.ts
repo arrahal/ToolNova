@@ -103,7 +103,7 @@ export function createExpressApp(): express.Express {
         res.setHeader('Access-Control-Allow-Origin', origin);
         res.setHeader('Vary', 'Origin');
       }
-    } else {
+    } else if (!isProd) {
       // In dev/test with no allowlist configured, safely allow request origin or wildcard
       if (origin) {
         res.setHeader('Access-Control-Allow-Origin', origin);

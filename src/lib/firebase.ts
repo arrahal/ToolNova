@@ -235,7 +235,84 @@ function clampString(raw: string, minLen: number, maxLen: number, fallback: stri
   return base.slice(0, maxLen);
 }
 
-// 6. User Profile Queries
+// 6. User Profile & Entitlement Queries
+export function resolvePlanTierFromEntitlementData(
+  entData: Record<string, unknown> | undefined | null
+): 'free' | 'pro' | 'business' {
+  if (!entData) {
+    return 'free';
+  }
+  const rawPlan = String(entData.planId || '').toLowerCase();
+  const mappedPlan: 'free' | 'pro' | 'business' =
+    rawPlan === 'enterprise' || rawPlan === 'business'
+      ? 'business'
+      : rawPlan === 'pro'
+      ? 'pro'
+      : 'free';
+
+  if (mappedPlan === 'free') {
+    return 'free';
+  }
+
+  const status = String(entData.status || 'active').toLowerCase();
+  const endsAt =
+    typeof entData.endsAt === 'number' && Number.isFinite(entData.endsAt)
+      ? entData.endsAt
+      : null;
+  const isExpiredByTime = endsAt !== null && endsAt <= Date.now();
+
+  if (status === 'expired' || isExpiredByTime) {
+    return 'free';
+  }
+  if (status === 'active' || status === 'past_due') {
+    return mappedPlan;
+  }
+  if (status === 'cancelled') {
+    return endsAt !== null && endsAt > Date.now() ? mappedPlan : 'free';
+  }
+  return 'free';
+}
+
+export function subscribeToEntitlement(
+  uid: string,
+  cb: (planId: 'free' | 'pro' | 'business') => void
+): () => void {
+  const cleanUid = sanitizeId(uid);
+  const entRef = doc(db, 'entitlements', cleanUid);
+
+  return onSnapshot(
+    entRef,
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        cb('free');
+        return;
+      }
+      cb(resolvePlanTierFromEntitlementData(snapshot.data() as Record<string, unknown>));
+    },
+    (error) => {
+      console.error('Entitlement subscription error:', error);
+      cb('free');
+    }
+  );
+}
+
+export function buildDefaultProfile(
+  fbUser: Pick<FirebaseUser, 'uid' | 'photoURL' | 'displayName' | 'email'>,
+  planId: 'free' | 'pro' | 'business' = 'free'
+): UserProfileData {
+  return {
+    uid: fbUser.uid,
+    photoURL: fbUser.photoURL || undefined,
+    fullName: (fbUser.displayName || fbUser.email?.split('@')[0] || 'ToolNova User').slice(0, 120),
+    email: (fbUser.email || 'user@example.com').slice(0, 254),
+    phone: '',
+    companyOrRole: '',
+    country: '',
+    planId,
+    joinedAt: new Date().toISOString().slice(0, 10),
+  };
+}
+
 export async function fetchUserProfileFromFirestore(
   uid: string
 ): Promise<UserProfileData | null> {
@@ -268,13 +345,9 @@ export async function fetchUserProfileFromFirestore(
   try {
     const entSnap = await getDoc(doc(db, 'entitlements', cleanUid));
     if (entSnap && entSnap.exists()) {
-      const entData = entSnap.data();
-      const raw = String(entData?.planId || '').toLowerCase();
-      if (raw === 'enterprise' || raw === 'business') {
-        verifiedPlanId = 'business';
-      } else if (raw === 'pro') {
-        verifiedPlanId = 'pro';
-      }
+      verifiedPlanId = resolvePlanTierFromEntitlementData(
+        entSnap.data() as Record<string, unknown>
+      );
     }
   } catch {
     // Default to 'free'
@@ -283,12 +356,12 @@ export async function fetchUserProfileFromFirestore(
   return {
     uid: cleanUid,
     fullName: String(pubData.fullName || 'Professional User'),
-    companyOrRole: String(pubData.companyOrRole || 'Independent Professional'),
-    country: String(pubData.country || 'Morocco'),
+    companyOrRole: String(pubData.companyOrRole ?? ''),
+    country: String(pubData.country ?? ''),
     planId: verifiedPlanId,
     joinedAt: String(pubData.joinedAt || new Date().toISOString().slice(0, 10)),
     email: String(privData?.email || auth.currentUser?.email || 'user@example.com'),
-    phone: String(privData?.phone || '+212 600-000000'),
+    phone: String(privData?.phone ?? ''),
   };
 }
 
@@ -301,8 +374,8 @@ export async function saveUserProfileToFirestore(
   const privateRef = doc(db, 'users', cleanUid, 'private', 'info');
 
   const safeFullName = clampString(profile.fullName, 1, 120, 'ToolNova User');
-  const safeCompany = clampString(profile.companyOrRole, 1, 120, 'Independent Professional');
-  const safeCountry = clampString(profile.country, 1, 100, 'Morocco');
+  const safeCompany = clampString(profile.companyOrRole, 0, 120, '');
+  const safeCountry = clampString(profile.country, 0, 100, '');
   const safeJoinedAt = clampString(
     profile.joinedAt,
     4,
@@ -315,7 +388,7 @@ export async function saveUserProfileToFirestore(
     254,
     'user@example.com'
   );
-  const safePhone = clampString(profile.phone, 3, 40, '+212 600-000000');
+  const safePhone = clampString(profile.phone, 0, 40, '');
 
   let existingPub;
   try {
@@ -483,6 +556,26 @@ function normalizeWorkflowApiPayload(input: WorkflowMutationInput): {
   };
 }
 
+export class WorkflowApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly limit?: number;
+  readonly planId?: string;
+
+  constructor(
+    message: string,
+    status: number,
+    meta?: { code?: string; limit?: number; planId?: string }
+  ) {
+    super(message);
+    this.name = 'WorkflowApiError';
+    this.status = status;
+    this.code = meta?.code;
+    this.limit = meta?.limit;
+    this.planId = meta?.planId;
+  }
+}
+
 export async function createWorkflowViaApi(
   input: WorkflowMutationInput
 ): Promise<WorkflowPreset> {
@@ -501,11 +594,22 @@ export async function createWorkflowViaApi(
   const body = (await res.json().catch(() => ({}))) as {
     ok?: boolean;
     error?: string;
+    code?: string;
+    limit?: number;
+    planId?: string;
     workflow?: WorkflowPreset;
   };
 
   if (!res.ok || !body.workflow) {
-    throw new Error(body.error || 'فشل إنشاء مسار العمل عبر الخادم.');
+    throw new WorkflowApiError(
+      body.error || 'فشل إنشاء مسار العمل عبر الخادم.',
+      res.status,
+      {
+        code: body.code,
+        limit: body.limit,
+        planId: body.planId,
+      }
+    );
   }
 
   return {
@@ -545,11 +649,22 @@ export async function updateWorkflowViaApi(
   const body = (await res.json().catch(() => ({}))) as {
     ok?: boolean;
     error?: string;
+    code?: string;
+    limit?: number;
+    planId?: string;
     workflow?: Partial<WorkflowPreset>;
   };
 
   if (!res.ok) {
-    throw new Error(body.error || 'فشل تعديل مسار العمل عبر الخادم.');
+    throw new WorkflowApiError(
+      body.error || 'فشل تعديل مسار العمل عبر الخادم.',
+      res.status,
+      {
+        code: body.code,
+        limit: body.limit,
+        planId: body.planId,
+      }
+    );
   }
 
   return {
@@ -581,9 +696,23 @@ export async function deleteWorkflowViaApi(workflowId: string): Promise<void> {
     },
   });
 
-  const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  const body = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    code?: string;
+    limit?: number;
+    planId?: string;
+  };
   if (!res.ok) {
-    throw new Error(body.error || 'فشل حذف مسار العمل عبر الخادم.');
+    throw new WorkflowApiError(
+      body.error || 'فشل حذف مسار العمل عبر الخادم.',
+      res.status,
+      {
+        code: body.code,
+        limit: body.limit,
+        planId: body.planId,
+      }
+    );
   }
 }
 

@@ -60,10 +60,10 @@ service cloud.firestore {
       data.fullName.size() >= 1 &&
       data.fullName.size() <= 120 &&
       data.companyOrRole is string &&
-      data.companyOrRole.size() >= 1 &&
+      data.companyOrRole.size() >= 0 &&
       data.companyOrRole.size() <= 120 &&
       data.country is string &&
-      data.country.size() >= 1 &&
+      data.country.size() >= 0 &&
       data.country.size() <= 100 &&
       data.planId is string &&
       data.planId.size() >= 1 &&
@@ -100,7 +100,7 @@ service cloud.firestore {
       data.email.size() >= 3 &&
       data.email.size() <= 254 &&
       data.phone is string &&
-      data.phone.size() >= 3 &&
+      data.phone.size() >= 0 &&
       data.phone.size() <= 40 &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;

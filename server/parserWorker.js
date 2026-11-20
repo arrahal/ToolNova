@@ -2,7 +2,7 @@ import { parentPort, workerData } from 'worker_threads';
 import mammoth from 'mammoth';
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
-import { sanitizeHtml } from './sanitizeHtml.js';
+import { sanitizeHtml } from './sanitizeHtml.ts';
 
 const MAX_ZIP_ENTRIES = 2000;
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 200 * 1024 * 1024; // 200MB

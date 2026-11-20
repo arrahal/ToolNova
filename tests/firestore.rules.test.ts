@@ -111,6 +111,12 @@ describe('Firestore Security Rules Suite', () => {
     );
     expect(pwMatch).not.toBeNull();
     expect(pwMatch![1]).toMatch(/allow\s+read,\s*write:\s*if\s+false\s*;/);
+
+    // Optional profile fields allow empty strings while required fields keep min >= 1
+    expect(rulesSource).toMatch(/data\.companyOrRole\.size\(\)\s*>=\s*0/);
+    expect(rulesSource).toMatch(/data\.country\.size\(\)\s*>=\s*0/);
+    expect(rulesSource).toMatch(/data\.phone\.size\(\)\s*>=\s*0/);
+    expect(rulesSource).toMatch(/data\.fullName\.size\(\)\s*>=\s*1/);
   });
 
   it('Baseline: Verified user can create valid profile with planId: "free" and access private info', async () => {
@@ -147,6 +153,64 @@ describe('Firestore Security Rules Suite', () => {
     // 3. Read own profile
     await assertSucceeds(getDoc(doc(db, 'users/user_A')));
     await assertSucceeds(getDoc(doc(db, 'users/user_A/private/info')));
+  });
+
+  it('Optional Profile Fields: Verified user can create profile with empty companyOrRole, country, and phone, while empty fullName or oversized fields fail', async () => {
+    if (!emulatorAvailable || !testEnv) return;
+
+    const ctx = getContext('user_opt', true);
+    const db = ctx.firestore();
+
+    await assertSucceeds(
+      setDoc(doc(db, 'users/user_opt'), {
+        uid: 'user_opt',
+        fullName: 'Opt User',
+        companyOrRole: '',
+        country: '',
+        planId: 'free',
+        joinedAt: '2026-11-20',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    );
+
+    await assertSucceeds(
+      setDoc(doc(db, 'users/user_opt/private/info'), {
+        uid: 'user_opt',
+        email: 'opt@example.com',
+        phone: '',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    );
+
+    // Required fullName must still be non-empty
+    await assertFails(
+      setDoc(doc(db, 'users/user_opt'), {
+        uid: 'user_opt',
+        fullName: '',
+        companyOrRole: '',
+        country: '',
+        planId: 'free',
+        joinedAt: '2026-11-20',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    );
+
+    // Max length bounds on optional fields must still hold
+    await assertFails(
+      updateDoc(doc(db, 'users/user_opt'), {
+        country: 'C'.repeat(101),
+        updatedAt: serverTimestamp(),
+      })
+    );
+    await assertFails(
+      updateDoc(doc(db, 'users/user_opt/private/info'), {
+        phone: '9'.repeat(41),
+        updatedAt: serverTimestamp(),
+      })
+    );
   });
 
   /* -------------------------------------------------------------

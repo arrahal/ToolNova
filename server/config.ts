@@ -22,55 +22,132 @@ export const PUBLIC_BASE_URL = (
 ).replace(/\/$/, '');
 
 // Audit IP salt for privacy-preserving SHA-256 IP hashing
-export const AUDIT_IP_SALT = process.env.AUDIT_IP_SALT || 'toolnova_default_audit_salt_2026';
+export function resolveAuditIpSalt(
+  rawSalt = process.env.AUDIT_IP_SALT,
+  nodeEnv = NODE_ENV
+): string {
+  const trimmed = rawSalt?.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+  if (nodeEnv === 'production') {
+    throw new Error('FATAL: AUDIT_IP_SALT environment variable is required in production.');
+  }
+  if (nodeEnv === 'development') {
+    console.warn(
+      '[SECURITY NOTICE] AUDIT_IP_SALT not set in env; using default development audit salt.'
+    );
+  }
+  return 'toolnova_default_audit_salt_2026';
+}
+
+export const AUDIT_IP_SALT = resolveAuditIpSalt();
 
 // Configurable CORS allowlist from env
-export const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
+export function resolveAllowedOrigins(
+  rawOrigins = process.env.ALLOWED_ORIGINS,
+  nodeEnv = NODE_ENV
+): string[] {
+  const origins = (rawOrigins || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (origins.length > 0) {
+    return origins;
+  }
+  if (nodeEnv === 'production') {
+    throw new Error('FATAL: ALLOWED_ORIGINS environment variable is required in production.');
+  }
+  if (nodeEnv === 'development') {
+    console.warn(
+      '[SECURITY NOTICE] ALLOWED_ORIGINS not set in env; CORS allowlist is empty in development.'
+    );
+  }
+  return [];
+}
+
+export const ALLOWED_ORIGINS = resolveAllowedOrigins();
 
 // Configurable trust proxy setting
 export const TRUST_PROXY = process.env.TRUST_PROXY;
 
 // Load Firebase Project ID from env or firebase-applet-config.json
-function resolveFirebaseProjectId(): string {
-  if (process.env.FIREBASE_PROJECT_ID) {
-    return process.env.FIREBASE_PROJECT_ID;
+export function resolveFirebaseProjectId(
+  configFilePath = path.join(PROJECT_ROOT, 'firebase-applet-config.json')
+): string {
+  const envProjectId =
+    process.env.FIREBASE_PROJECT_ID?.trim() || process.env.VITE_FIREBASE_PROJECT_ID?.trim();
+  if (envProjectId) {
+    return envProjectId;
   }
-  if (process.env.VITE_FIREBASE_PROJECT_ID) {
-    return process.env.VITE_FIREBASE_PROJECT_ID;
-  }
-  const configPath = path.join(PROJECT_ROOT, 'firebase-applet-config.json');
   try {
-    if (fs.existsSync(configPath)) {
-      const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      if (parsed.projectId) return parsed.projectId;
+    if (fs.existsSync(configFilePath)) {
+      const parsed = JSON.parse(fs.readFileSync(configFilePath, 'utf-8')) as {
+        projectId?: unknown;
+      };
+      if (typeof parsed.projectId === 'string' && parsed.projectId.trim()) {
+        return parsed.projectId.trim();
+      }
     }
   } catch (err) {
     console.error('Failed to read firebase-applet-config.json:', err);
   }
-  return 'platinum-canto-h1ttq';
+  throw new Error(
+    'FATAL: Firebase projectId is not configured. Set FIREBASE_PROJECT_ID (or VITE_FIREBASE_PROJECT_ID) or provide projectId in firebase-applet-config.json.'
+  );
 }
 
 export const FIREBASE_PROJECT_ID = resolveFirebaseProjectId();
 
-function resolveFirestoreDatabaseId(): string {
-  if (process.env.FIRESTORE_DATABASE_ID) return process.env.FIRESTORE_DATABASE_ID;
-  const configPath = path.join(PROJECT_ROOT, 'firebase-applet-config.json');
+export function resolveFirestoreDatabaseId(
+  configFilePath = path.join(PROJECT_ROOT, 'firebase-applet-config.json')
+): string {
+  const envDbId =
+    process.env.FIRESTORE_DATABASE_ID?.trim() || process.env.VITE_FIREBASE_DATABASE_ID?.trim();
+  if (envDbId) {
+    return envDbId;
+  }
   try {
-    if (fs.existsSync(configPath)) {
-      const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      if (parsed.firestoreDatabaseId) return parsed.firestoreDatabaseId;
+    if (fs.existsSync(configFilePath)) {
+      const parsed = JSON.parse(fs.readFileSync(configFilePath, 'utf-8')) as {
+        firestoreDatabaseId?: unknown;
+      };
+      if (typeof parsed.firestoreDatabaseId === 'string' && parsed.firestoreDatabaseId.trim()) {
+        return parsed.firestoreDatabaseId.trim();
+      }
     }
   } catch (err) {
     console.error('Failed to read firestoreDatabaseId:', err);
   }
-  return 'ai-studio-toolnova-5108839e-cf7e-436d-a08c-d644ea2f35ed';
+  throw new Error(
+    'FATAL: Firestore databaseId is not configured. Set FIRESTORE_DATABASE_ID (or VITE_FIREBASE_DATABASE_ID) or provide firestoreDatabaseId in firebase-applet-config.json.'
+  );
 }
 
 export const FIRESTORE_DATABASE_ID = resolveFirestoreDatabaseId();
-export const LEMONSQUEEZY_WEBHOOK_SECRET = process.env.LEMONSQUEEZY_WEBHOOK_SECRET || '';
+
+export function resolveLemonSqueezyWebhookSecret(
+  rawSecret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET,
+  nodeEnv = NODE_ENV
+): string {
+  const trimmed = rawSecret?.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+  if (nodeEnv === 'production') {
+    throw new Error(
+      'FATAL: LEMONSQUEEZY_WEBHOOK_SECRET environment variable is required in production.'
+    );
+  }
+  if (nodeEnv === 'development') {
+    console.warn(
+      '[SECURITY NOTICE] LEMONSQUEEZY_WEBHOOK_SECRET not set in env; Lemon Squeezy webhook verification is disabled until configured.'
+    );
+  }
+  return '';
+}
+
+export const LEMONSQUEEZY_WEBHOOK_SECRET = resolveLemonSqueezyWebhookSecret();
 
 // Master Key ID for key rotation support (clean identifier)
 export const CURRENT_MASTER_KEY_ID =

@@ -1,9 +1,19 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import crypto from 'crypto';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import express from 'express';
 import { AddressInfo } from 'net';
 import JSZip from 'jszip';
 import type { EntitlementRecord, EntitlementStatus, PlanTier } from '../server/firebaseAdmin';
+import {
+  resolveAllowedOrigins,
+  resolveAuditIpSalt,
+  resolveFirebaseProjectId,
+  resolveFirestoreDatabaseId,
+  resolveLemonSqueezyWebhookSecret,
+} from '../server/config';
 
 const { testWebhookSecret, mockWorkflowsMap, mockEntitlementsMap, mockProcessedWebhooksMap } =
   vi.hoisted(() => {
@@ -907,6 +917,92 @@ describe('TASK 5 — Server Hardening, Storage, DoS Protection', () => {
       expect(resExpired.status).toBe(200);
       expect(mockEntitlementsMap.get('cancelled_user')?.planId).toBe('free');
       expect(mockEntitlementsMap.get('cancelled_user')?.status).toBe('expired');
+    });
+  });
+
+  describe('7. Task 4: Config Validation, No Hardcoded Firebase Fallbacks, and Production CORS', () => {
+    it('throws in production when AUDIT_IP_SALT, ALLOWED_ORIGINS, or LEMONSQUEEZY_WEBHOOK_SECRET is missing, and warns with defaults in development', () => {
+      expect(() => resolveAuditIpSalt('', 'production')).toThrow(/AUDIT_IP_SALT/);
+      expect(() => resolveAllowedOrigins('', 'production')).toThrow(/ALLOWED_ORIGINS/);
+      expect(() => resolveLemonSqueezyWebhookSecret('', 'production')).toThrow(
+        /LEMONSQUEEZY_WEBHOOK_SECRET/
+      );
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        expect(resolveAuditIpSalt('', 'development')).toBe('toolnova_default_audit_salt_2026');
+        expect(resolveAllowedOrigins('', 'development')).toEqual([]);
+        expect(resolveLemonSqueezyWebhookSecret('', 'development')).toBe('');
+        expect(warnSpy).toHaveBeenCalledTimes(3);
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('fails with a clear error when Firebase projectId or databaseId is missing from env and config file', () => {
+      const prevProj = process.env.FIREBASE_PROJECT_ID;
+      const prevViteProj = process.env.VITE_FIREBASE_PROJECT_ID;
+      const prevDb = process.env.FIRESTORE_DATABASE_ID;
+      const prevViteDb = process.env.VITE_FIREBASE_DATABASE_ID;
+
+      delete process.env.FIREBASE_PROJECT_ID;
+      delete process.env.VITE_FIREBASE_PROJECT_ID;
+      delete process.env.FIRESTORE_DATABASE_ID;
+      delete process.env.VITE_FIREBASE_DATABASE_ID;
+
+      const missingConfigPath = path.join(os.tmpdir(), `missing-fb-${Date.now()}.json`);
+      const emptyConfigPath = path.join(os.tmpdir(), `empty-fb-${Date.now()}.json`);
+      fs.writeFileSync(emptyConfigPath, JSON.stringify({}), 'utf-8');
+
+      try {
+        expect(() => resolveFirebaseProjectId(missingConfigPath)).toThrow(/Firebase projectId/);
+        expect(() => resolveFirestoreDatabaseId(missingConfigPath)).toThrow(
+          /Firestore databaseId/
+        );
+        expect(() => resolveFirebaseProjectId(emptyConfigPath)).toThrow(/Firebase projectId/);
+        expect(() => resolveFirestoreDatabaseId(emptyConfigPath)).toThrow(/Firestore databaseId/);
+
+        process.env.FIREBASE_PROJECT_ID = 'env-project-id';
+        process.env.FIRESTORE_DATABASE_ID = 'env-db-id';
+        expect(resolveFirebaseProjectId(missingConfigPath)).toBe('env-project-id');
+        expect(resolveFirestoreDatabaseId(missingConfigPath)).toBe('env-db-id');
+      } finally {
+        if (prevProj !== undefined) process.env.FIREBASE_PROJECT_ID = prevProj;
+        else delete process.env.FIREBASE_PROJECT_ID;
+        if (prevViteProj !== undefined) process.env.VITE_FIREBASE_PROJECT_ID = prevViteProj;
+        else delete process.env.VITE_FIREBASE_PROJECT_ID;
+        if (prevDb !== undefined) process.env.FIRESTORE_DATABASE_ID = prevDb;
+        else delete process.env.FIRESTORE_DATABASE_ID;
+        if (prevViteDb !== undefined) process.env.VITE_FIREBASE_DATABASE_ID = prevViteDb;
+        else delete process.env.VITE_FIREBASE_DATABASE_ID;
+        if (fs.existsSync(emptyConfigPath)) fs.unlinkSync(emptyConfigPath);
+      }
+    });
+
+    it('does not reflect arbitrary Origin headers in production when ALLOWED_ORIGINS is empty', async () => {
+      const prevEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      let prodServer: ReturnType<express.Express['listen']> | null = null;
+      try {
+        const prodApp = createExpressApp();
+        await new Promise<void>((resolve) => {
+          prodServer = prodApp.listen(0, '127.0.0.1', () => resolve());
+        });
+        const addr = prodServer!.address() as AddressInfo;
+        const prodUrl = `http://127.0.0.1:${addr.port}`;
+
+        const res = await fetch(`${prodUrl}/api/protector/inspect`, {
+          method: 'OPTIONS',
+          headers: { Origin: 'https://evil.example' },
+        });
+        expect(res.status).toBe(204);
+        expect(res.headers.get('access-control-allow-origin')).toBeNull();
+      } finally {
+        if (prodServer) {
+          await new Promise<void>((resolve) => prodServer!.close(() => resolve()));
+        }
+        process.env.NODE_ENV = prevEnv;
+      }
     });
   });
 });

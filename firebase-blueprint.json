@@ -21,13 +21,13 @@
         "companyOrRole": {
           "type": "string",
           "description": "Profession, company, or role",
-          "minLength": 1,
+          "minLength": 0,
           "maxLength": 120
         },
         "country": {
           "type": "string",
           "description": "Country or city name",
-          "minLength": 1,
+          "minLength": 0,
           "maxLength": 100
         },
         "planId": {
@@ -86,7 +86,7 @@
         "phone": {
           "type": "string",
           "description": "Phone number of the user",
-          "minLength": 3,
+          "minLength": 0,
           "maxLength": 40
         },
         "createdAt": {

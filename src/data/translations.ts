@@ -46,6 +46,41 @@ export interface UiStrings {
   registerBtnLabel: string;
   accountProfileLabel: string;
   logoutBtnLabel: string;
+  fileProtectorNavLabel: string;
+  selectLanguageAriaLabel: string;
+  changeLanguageTitle: string;
+  toggleThemeAriaLabel: string;
+  toggleThemeTitle: string;
+  upgradeToProBtn: string;
+  goUnlimitedBadge: string;
+  proAccountActiveTitle: string;
+  signOutShortLabel: string;
+  googleLoginBtnLabel: string;
+  activeWorkflowLabel: string;
+  workflowStepProgress: string;
+  nextPipelineStepBtn: string;
+  finishWorkflowBtn: string;
+  exitWorkflowBtn: string;
+  clearSearchAriaLabel: string;
+  categoryFilterAriaLabel: string;
+  fileProtectorBannerTitle: string;
+  fileProtectorBannerDesc: string;
+  encryptFileBtn: string;
+  openSecureFileBtn: string;
+  dashboardBtn: string;
+  dismissErrorAriaLabel: string;
+  workflowRunsSuffix: string;
+  editWorkflowLabel: string;
+  deleteWorkflowLabel: string;
+  toolsGridAriaLabel: string;
+  workflowHistoryPrefix: string;
+  workflowCompletedDetail: string;
+  googleSignInHistoryTitle: string;
+  firebaseGoogleAccountHistoryTitle: string;
+  userAccountHistoryTitle: string;
+  planHistoryLabel: string;
+  checkoutInitiatedHistoryTitle: string;
+  providerHistoryLabel: string;
   categoryLabels: Record<HubCategory, string>;
   hubLabels: Record<'pdf' | 'word' | 'excel' | 'powerpoint' | 'image' | 'text' | 'audio' | 'video', string>;
 }
@@ -87,6 +122,42 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     registerBtnLabel: 'إنشاء حساب',
     accountProfileLabel: 'حسابي الشخصي',
     logoutBtnLabel: 'تسجيل الخروج',
+    fileProtectorNavLabel: 'تشفير الملفات وحمايتها',
+    selectLanguageAriaLabel: 'اختر اللغة',
+    changeLanguageTitle: 'تغيير اللغة',
+    toggleThemeAriaLabel: 'تبديل مظهر الألوان',
+    toggleThemeTitle: 'التبديل بين الوضع الفاتح والداكن',
+    upgradeToProBtn: 'الترقية إلى Pro',
+    goUnlimitedBadge: 'غير محدود',
+    proAccountActiveTitle: 'حساب Pro / المميز نشط',
+    signOutShortLabel: 'خروج',
+    googleLoginBtnLabel: 'تسجيل الدخول / Google',
+    activeWorkflowLabel: 'مسار العمل النشط',
+    workflowStepProgress: 'الخطوة {current} من {total}',
+    nextPipelineStepBtn: 'الخطوة التالية',
+    finishWorkflowBtn: 'إنهاء المسار',
+    exitWorkflowBtn: 'إغلاق',
+    clearSearchAriaLabel: 'مسح البحث',
+    categoryFilterAriaLabel: 'تصفية فئات الأدوات',
+    fileProtectorBannerTitle: '🔐 خدمة تشفير الملفات وحمايتها (File Protector)',
+    fileProtectorBannerDesc:
+      'تشفير Word و Excel و PowerPoint و PDF و ZIP · تحديد عدد مرات الفتح · عارض آمن ولوحة تحكم',
+    encryptFileBtn: 'تشفير ملف',
+    openSecureFileBtn: 'فتح ملف (.secure)',
+    dashboardBtn: 'لوحة التحكم',
+    dismissErrorAriaLabel: 'إغلاق التنبيه',
+    workflowRunsSuffix: 'تشغيل',
+    editWorkflowLabel: 'تعديل المسار',
+    deleteWorkflowLabel: 'حذف المسار',
+    toolsGridAriaLabel: 'شبكة الأدوات',
+    workflowHistoryPrefix: 'مسار العمل',
+    workflowCompletedDetail: 'اكتملت جميع مراحل المسار ({count}) محلياً.',
+    googleSignInHistoryTitle: 'تسجيل الدخول عبر Google',
+    firebaseGoogleAccountHistoryTitle: 'حساب Google (Firebase)',
+    userAccountHistoryTitle: 'الحساب الشخصي',
+    planHistoryLabel: 'الباقة',
+    checkoutInitiatedHistoryTitle: 'طلب ترقية الحساب',
+    providerHistoryLabel: 'المزوّد',
     categoryLabels: {
       all: 'الكل',
       workflows: 'مسارات العمل',
@@ -149,6 +220,42 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     registerBtnLabel: 'Créer un compte',
     accountProfileLabel: 'Mon Profil',
     logoutBtnLabel: 'Déconnexion',
+    fileProtectorNavLabel: 'Protecteur de fichiers',
+    selectLanguageAriaLabel: 'Choisir la langue',
+    changeLanguageTitle: 'Changer de langue',
+    toggleThemeAriaLabel: 'Changer le thème de couleur',
+    toggleThemeTitle: 'Basculer entre le mode clair et sombre',
+    upgradeToProBtn: 'Passer à Pro',
+    goUnlimitedBadge: 'Illimité',
+    proAccountActiveTitle: 'Compte Pro / Premium actif',
+    signOutShortLabel: 'Déconnexion',
+    googleLoginBtnLabel: 'Connexion / Google',
+    activeWorkflowLabel: 'Flux actif',
+    workflowStepProgress: 'Étape {current} sur {total}',
+    nextPipelineStepBtn: 'Étape suivante',
+    finishWorkflowBtn: 'Terminer le flux',
+    exitWorkflowBtn: 'Quitter',
+    clearSearchAriaLabel: 'Effacer la recherche',
+    categoryFilterAriaLabel: 'Filtrer les catégories d’outils',
+    fileProtectorBannerTitle: '🔐 File Protector — Chiffrement AES-256-GCM et limite d’ouverture',
+    fileProtectorBannerDesc:
+      'Chiffrez Word, Excel, PowerPoint, PDF, ZIP · Limite atomique d’ouvertures · Visionneuse sécurisée',
+    encryptFileBtn: 'Chiffrer un fichier',
+    openSecureFileBtn: 'Ouvrir (.secure)',
+    dashboardBtn: 'Tableau de bord',
+    dismissErrorAriaLabel: 'Fermer l’alerte',
+    workflowRunsSuffix: 'exécutions',
+    editWorkflowLabel: 'Modifier le flux',
+    deleteWorkflowLabel: 'Supprimer le flux',
+    toolsGridAriaLabel: 'Grille des outils',
+    workflowHistoryPrefix: 'Flux',
+    workflowCompletedDetail: 'Les {count} étapes du pipeline ont été exécutées localement.',
+    googleSignInHistoryTitle: 'Connexion Google',
+    firebaseGoogleAccountHistoryTitle: 'Compte Google (Firebase)',
+    userAccountHistoryTitle: 'Compte utilisateur',
+    planHistoryLabel: 'Forfait',
+    checkoutInitiatedHistoryTitle: 'Paiement d’abonnement initié',
+    providerHistoryLabel: 'Fournisseur',
     categoryLabels: {
       all: 'Tout',
       workflows: 'Flux de travail',
@@ -212,6 +319,42 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     registerBtnLabel: 'Create Account',
     accountProfileLabel: 'My Account',
     logoutBtnLabel: 'Sign Out',
+    fileProtectorNavLabel: 'File Protector',
+    selectLanguageAriaLabel: 'Select Language',
+    changeLanguageTitle: 'Change Language',
+    toggleThemeAriaLabel: 'Toggle color theme',
+    toggleThemeTitle: 'Toggle Light / Dark Mode',
+    upgradeToProBtn: 'Upgrade to Pro',
+    goUnlimitedBadge: 'Go Unlimited',
+    proAccountActiveTitle: 'Pro / Premium Account Active',
+    signOutShortLabel: 'Sign out',
+    googleLoginBtnLabel: 'Login / Sign in with Google',
+    activeWorkflowLabel: 'Active Workflow',
+    workflowStepProgress: 'Step {current} of {total}',
+    nextPipelineStepBtn: 'Next Pipeline Step',
+    finishWorkflowBtn: 'Finish Workflow',
+    exitWorkflowBtn: 'Exit',
+    clearSearchAriaLabel: 'Clear search',
+    categoryFilterAriaLabel: 'Tool category filter',
+    fileProtectorBannerTitle: '🔐 File Protector — AES-256-GCM Encryption & Open Limit',
+    fileProtectorBannerDesc:
+      'Encrypt Word, Excel, PowerPoint, PDF, ZIP · Atomic Open Limits · Secure Viewer & Dashboard',
+    encryptFileBtn: 'Encrypt File',
+    openSecureFileBtn: 'Open .secure',
+    dashboardBtn: 'Dashboard',
+    dismissErrorAriaLabel: 'Dismiss error',
+    workflowRunsSuffix: 'runs',
+    editWorkflowLabel: 'Edit workflow',
+    deleteWorkflowLabel: 'Delete workflow',
+    toolsGridAriaLabel: 'Tools Grid',
+    workflowHistoryPrefix: 'Workflow',
+    workflowCompletedDetail: 'Completed all {count} pipeline stages locally.',
+    googleSignInHistoryTitle: 'Google Sign-In',
+    firebaseGoogleAccountHistoryTitle: 'Firebase Google Account',
+    userAccountHistoryTitle: 'User Account',
+    planHistoryLabel: 'Plan',
+    checkoutInitiatedHistoryTitle: 'Subscription Checkout Initiated',
+    providerHistoryLabel: 'Provider',
     categoryLabels: {
       all: 'All',
       workflows: 'Workflows',
@@ -274,6 +417,42 @@ export const UI_TRANSLATIONS: Record<AppLanguage, UiStrings> = {
     registerBtnLabel: 'Crear cuenta',
     accountProfileLabel: 'Mi Cuenta',
     logoutBtnLabel: 'Cerrar sesión',
+    fileProtectorNavLabel: 'Protector de archivos',
+    selectLanguageAriaLabel: 'Seleccionar idioma',
+    changeLanguageTitle: 'Cambiar idioma',
+    toggleThemeAriaLabel: 'Cambiar tema de color',
+    toggleThemeTitle: 'Cambiar entre modo claro y oscuro',
+    upgradeToProBtn: 'Actualizar a Pro',
+    goUnlimitedBadge: 'Ilimitado',
+    proAccountActiveTitle: 'Cuenta Pro / Premium activa',
+    signOutShortLabel: 'Salir',
+    googleLoginBtnLabel: 'Iniciar sesión / Google',
+    activeWorkflowLabel: 'Flujo activo',
+    workflowStepProgress: 'Paso {current} de {total}',
+    nextPipelineStepBtn: 'Siguiente paso',
+    finishWorkflowBtn: 'Finalizar flujo',
+    exitWorkflowBtn: 'Salir',
+    clearSearchAriaLabel: 'Limpiar búsqueda',
+    categoryFilterAriaLabel: 'Filtro de categorías de herramientas',
+    fileProtectorBannerTitle: '🔐 File Protector — Cifrado AES-256-GCM y límite de apertura',
+    fileProtectorBannerDesc:
+      'Cifra Word, Excel, PowerPoint, PDF, ZIP · Límites atómicos de apertura · Visor seguro y panel',
+    encryptFileBtn: 'Cifrar archivo',
+    openSecureFileBtn: 'Abrir .secure',
+    dashboardBtn: 'Panel',
+    dismissErrorAriaLabel: 'Cerrar alerta',
+    workflowRunsSuffix: 'ejecuciones',
+    editWorkflowLabel: 'Editar flujo',
+    deleteWorkflowLabel: 'Eliminar flujo',
+    toolsGridAriaLabel: 'Cuadrícula de herramientas',
+    workflowHistoryPrefix: 'Flujo',
+    workflowCompletedDetail: 'Se completaron localmente las {count} etapas del flujo.',
+    googleSignInHistoryTitle: 'Inicio de sesión con Google',
+    firebaseGoogleAccountHistoryTitle: 'Cuenta de Google (Firebase)',
+    userAccountHistoryTitle: 'Cuenta de usuario',
+    planHistoryLabel: 'Plan',
+    checkoutInitiatedHistoryTitle: 'Pago de suscripción iniciado',
+    providerHistoryLabel: 'Proveedor',
     categoryLabels: {
       all: 'Todo',
       workflows: 'Flujos',
